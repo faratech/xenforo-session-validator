@@ -1,160 +1,118 @@
-# Session Validator for Cloudflare
+# XenForo Session Validator for Cloudflare
 
-A XenForo 2.2+ add-on that validates user sessions and adds verification headers for use with Cloudflare's Web Application Firewall (WAF) rules. This allows you to create security rules that treat authenticated forum members differently from guests or bots.
+A XenForo 2.2+ add-on that validates user sessions and provides verification headers for Cloudflare WAF rules, enabling advanced security configurations.
 
-## Features
+## 🛡️ Overview
 
-- **Automatic Session Validation**: Validates XenForo sessions early in the request cycle
-- **Security Headers**: Adds custom headers that Cloudflare can read to identify verified users
-- **Flexible Configuration**: Control what information is exposed via headers
-- **Lightweight**: Minimal performance impact with efficient database queries
-- **Privacy Conscious**: Verbose output can be disabled to limit exposed information
+This add-on bridges XenForo's session management with Cloudflare's Web Application Firewall, allowing you to create sophisticated security rules based on actual session validation rather than just cookie presence.
 
-## Requirements
+## ✨ Key Features
+
+- **Server-side session validation** - Validates sessions against XenForo's database, not just cookies
+- **Security headers** - Adds HTTP headers that Cloudflare WAF rules can use
+- **Flexible configuration** - Control verbosity and activity windows
+- **Lightweight** - Minimal performance impact
+- **Privacy-conscious** - Optional verbose output
+
+## 🚀 Installation
+
+1. Download the latest release from the [Releases](../../releases) page
+2. Extract to `src/addons/WindowsForum/SessionValidator/`
+3. Install via XenForo Admin CP → Add-ons
+4. Configure in Admin CP → Options → Session Validator
+5. Create Cloudflare WAF rules using the headers
+
+## 📋 Requirements
 
 - XenForo 2.2.0 or higher
 - PHP 7.2 or higher
-- Cloudflare (Free, Pro, Business, or Enterprise plan)
+- Cloudflare account (Free tier works!)
 
-## Installation
+## 🔧 Configuration
 
-1. Download the add-on package
-2. Extract the contents to `src/addons/WindowsForum/SessionValidator/`
-3. In your XenForo Admin Control Panel, go to **Add-ons**
-4. Click **Install/upgrade from archive** or **Install from file system**
-5. Select the Session Validator add-on and click **Install**
+### Available Options
 
-## Configuration
+- **Enable Session Validator** - Turn validation on/off
+- **Activity Window** - How long to consider sessions active (default: 24 hours)
+- **Verbose Output** - Include detailed user information in headers
 
-### XenForo Settings
+### Headers Set
 
-Navigate to **Admin CP → Options → Session Validator** to configure:
+Basic validation:
+- `XF-Verified-User: true`
+- `XF-Verified-Session: true`
+- `XF-Session-Validated: [timestamp]`
 
-- **Enable Session Validator**: Turn the add-on on/off
-- **Activity Window**: How long (in seconds) a user is considered active (default: 24 hours)
-- **Verbose Output**: Whether to include detailed user information in headers
+With verbose output:
+- `XF-User-ID: [user_id]`
+- `XF-Username: [username]`
+- `XF-Is-Staff: true/false`
+- `XF-Is-Admin: true/false`
 
-### Headers Explained
+## 🔥 Cloudflare WAF Examples
 
-The add-on sets the following HTTP headers that Cloudflare can read:
-
-#### Always Set (when validated):
-- `XF-Verified-User: true` - User has valid session with all required cookies
-- `XF-Verified-Session: true` - Valid session exists
-- `XF-Session-Validated: [timestamp]` - When validation occurred
-
-#### With Verbose Output Enabled:
-- `XF-User-ID: [user_id]` - The user's numeric ID
-- `XF-Username: [username]` - The user's username
-- `XF-Is-Staff: true/false` - Whether user is staff
-- `XF-Is-Admin: true/false` - Whether user is admin
-- `XF-Is-Moderator: true/false` - Whether user is moderator
-
-## Cloudflare Configuration
-
-### Creating WAF Rules
-
-1. Log into your Cloudflare dashboard
-2. Select your domain
-3. Go to **Security → WAF → Custom rules**
-4. Click **Create rule**
-
-### Example Rules
-
-#### Skip Security Checks for Verified Users
+### Block non-members from attachments
 ```
-Rule name: Allow Verified Forum Users
-Expression: (http.request.headers["xf-verified-user"][0] eq "true")
-Action: Skip → All remaining custom rules
-```
-
-#### Rate Limit Non-Members More Aggressively
-```
-Rule name: Strict Rate Limit for Guests
-Expression: (not http.request.headers["xf-verified-session"][0] eq "true") and (http.request.uri.path contains "/forums/")
+(http.request.uri.path contains "/attachments/" and 
+ not http.request.headers["xf-verified-user"][0] eq "true")
 Action: Block
 ```
 
-#### Allow Staff Bypass During Attacks
+### Rate limit guests
 ```
-Rule name: Staff Always Allowed
-Expression: (http.request.headers["xf-is-staff"][0] eq "true")
-Action: Skip → All security measures
-```
-
-#### Block Specific Actions for Non-Members
-```
-Rule name: Members Only Actions
-Expression: (http.request.uri.path contains "/post-thread" or http.request.uri.path contains "/post-reply") and (not http.request.headers["xf-verified-user"][0] eq "true")
-Action: Block
+(not http.request.headers["xf-verified-session"][0])
+Action: Rate Limit (10 requests/minute)
 ```
 
-### Important Cloudflare Settings
-
-1. **Page Rules**: Ensure "Cache Level: Bypass" for paths like `/admin.php`, `/login/`, etc.
-2. **Configuration Rules**: Set "Cache Eligibility: Bypass cache" when cookie `xf_user` exists
-3. **Security Level**: Can be set higher since members won't see challenges
-
-## How It Works
-
-1. The add-on runs very early in XenForo's request cycle
-2. It checks for XenForo session cookies (`xf_session`, `xf_user`, `xf_csrf`)
-3. When all three cookies are present, it validates against the database
-4. If validation succeeds, it sets HTTP headers before any output
-5. Cloudflare reads these headers and applies your custom rules
-
-## Security Considerations
-
-- **Verbose Output**: Only enable if you need the extra information. User IDs and usernames in headers could be logged by proxies.
-- **HTTPS Required**: Always use HTTPS to prevent header spoofing
-- **Rule Order**: Place skip rules before block rules in Cloudflare
-- **Cache Headers**: The validator doesn't interfere with XenForo's cache headers
-
-## Troubleshooting
-
-### Headers Not Appearing
-
-1. Check if the add-on is enabled in XenForo options
-2. Verify you're logged into the forum
-3. Clear Cloudflare cache: **Caching → Configuration → Purge Everything**
-4. Check cookies are being sent: Browser DevTools → Network → Request Headers
-
-### Validation Not Working
-
-- Ensure all three cookies are present: `xf_session`, `xf_user`, `xf_csrf`
-- Check user has activity within the configured window (default 24 hours)
-- Verify database connectivity in XenForo
-
-### Testing Headers
-
-```bash
-# Test with curl (replace with your actual cookies)
-curl -I -H "Cookie: xf_session=YOUR_SESSION; xf_user=YOUR_USER; xf_csrf=YOUR_CSRF" https://yourdomain.com/
-
-# Look for XF-* headers in response
+### Protect member areas
+```
+(http.request.uri.path contains "/account/" and 
+ not http.request.headers["xf-verified-user"][0] eq "true")
+Action: Managed Challenge
 ```
 
-## Performance
+## 🤝 Why Server Validation Matters
 
-- Adds one database query per request (cached by XenForo)
-- Headers are set before any output processing
-- No impact on page rendering time
-- Works with XenForo's built-in caching
+Unlike simple cookie-based rules, this add-on:
+- Validates cookies against the actual session database
+- Checks for recent activity within your configured window
+- Prevents cookie replay attacks
+- Uses XenForo's session_activity table as the single source of truth
 
-## Privacy Policy
+## 📊 Cloudflare Plan Compatibility
 
-If you enable verbose output, consider updating your privacy policy to mention that user identifiers may be included in HTTP headers for security purposes.
+Works with all Cloudflare plans:
+- **Free**: 5 active custom rules
+- **Pro**: 20 active custom rules
+- **Business**: 100 active custom rules
+- **Enterprise**: 1000+ active custom rules
 
-## Support
+## 🔗 Resources
 
-- **Bug Reports**: Please include XenForo version, PHP version, and any error messages
-- **Feature Requests**: We welcome suggestions for improvement
-- **Cloudflare Help**: See [Cloudflare's WAF documentation](https://developers.cloudflare.com/waf/custom-rules/)
+- [XenForo Resource Page](https://xenforo.com/community/resources/)
+- [Support Thread](https://xenforo.com/community/threads/)
+- [DigitalPoint Cloudflare Add-on](https://xenforo.com/community/resources/digitalpoint-app-for-cloudflare-r.8750/) - Recommended companion
 
-## License
+## 📄 License
 
-This add-on is released under the MIT License. See LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
 
-## Credits
+## 🤖 Contributing
 
-Developed by WindowsForum for the XenForo community. Based on proven session validation techniques.
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 🐛 Issues
+
+Found a bug? Please open an issue with:
+- XenForo version
+- PHP version
+- Steps to reproduce
+- Expected vs actual behavior
+
+## 💡 Credits
+
+Developed by [WindowsForum](https://windowsforum.com) for the XenForo community.
+
+---
+
+**Note**: This is not affiliated with or endorsed by Cloudflare, Inc. Cloudflare is a registered trademark of Cloudflare, Inc.
