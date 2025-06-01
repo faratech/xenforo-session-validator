@@ -1,0 +1,20 @@
+# Build releases
+/_releases/
+
+# Development files
+/.idea/
+/.vscode/
+*.DS_Store
+*.swp
+*.swo
+
+# XenForo development mode output
+/_output/
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Local configuration
+/config.local.php
