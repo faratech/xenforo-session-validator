@@ -57,8 +57,10 @@ class SessionValidator
             }
         }
         
-        // Scenario 2: Session-only verification (just CSRF token) - from original
-        if ($csrfToken && !empty($csrfToken))
+        // Scenario 2: Session-only verification (just CSRF token)
+        // The initial "$csrfToken &&" check was redundant
+        // because !empty($csrfToken) already covers it
+        if (!empty($csrfToken))
         {
             $sessionValidation = $this->validateCsrfSession($csrfToken);
             if ($sessionValidation)
