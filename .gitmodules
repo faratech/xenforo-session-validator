@@ -1,0 +1,3 @@
+[submodule "src/addons/WindowsForum/SessionValidator"]
+	path = src/addons/WindowsForum/SessionValidator
+	url = https://github.com/faratech/xenforo-session-validator.git

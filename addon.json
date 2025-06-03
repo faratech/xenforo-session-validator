@@ -2,16 +2,22 @@
     "legacy_addon_id": "",
     "title": "Session Validator for Cloudflare",
     "description": "Validates XenForo sessions and adds verification headers for Cloudflare WAF rules to distinguish between members, guests, and bots",
-    "version_id": 1000070,
-    "version_string": "1.0.0",
+    "version_id": 1000170,
+    "version_string": "1.0.1",
     "dev": "WindowsForum",
     "dev_url": "https://windowsforum.com",
     "faq_url": "",
     "support_url": "",
     "extra_urls": [],
     "require": {
-        "XF": [2020000, "XenForo 2.2.0+"],
-        "php": ["7.2.0", "PHP 7.2.0+"]
+        "XF": [
+            2020000,
+            "XenForo 2.2.0+"
+        ],
+        "php": [
+            "7.2.0",
+            "PHP 7.2.0+"
+        ]
     },
     "icon": "icon.webp"
 }
