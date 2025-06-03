@@ -9,20 +9,17 @@ namespace WindowsForum\SessionValidator\Service;
  * that can be used in Cloudflare security rules for enhanced authentication.
  * 
  * Based on the proven gold standard xenforo-session-validator.php
+ *
+ * This version uses \XF::db() to access XenForo's configured
+ * database connection rather than creating a new PDO instance.
  */
 class SessionValidator
 {
-    private $config;
     private $db;
     
     public function __construct()
     {
-        // Load XenForo config
-        $configPath = \XF::getRootDirectory() . '/src/config.php';
-        if (file_exists($configPath))
-        {
-            $this->config = require $configPath;
-        }
+        // Uses XenForo's built-in database connection
     }
     
     /**
@@ -60,8 +57,10 @@ class SessionValidator
             }
         }
         
-        // Scenario 2: Session-only verification (just CSRF token) - from original
-        if ($csrfToken && !empty($csrfToken))
+        // Scenario 2: Session-only verification (just CSRF token)
+        // The initial "$csrfToken &&" check was redundant
+        // because !empty($csrfToken) already covers it
+        if (!empty($csrfToken))
         {
             $sessionValidation = $this->validateCsrfSession($csrfToken);
             if ($sessionValidation)
@@ -198,23 +197,10 @@ class SessionValidator
         {
             return $this->db;
         }
-        
-        if (!$this->config || !isset($this->config['db']))
-        {
-            return null;
-        }
-        
+
         try
         {
-            $dbConfig = $this->config['db'];
-            $dsn = "mysql:host={$dbConfig['host']};port={$dbConfig['port']};dbname={$dbConfig['dbname']};charset=utf8mb4";
-            
-            $this->db = new \PDO($dsn, $dbConfig['username'], $dbConfig['password'], [
-                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-                \PDO::ATTR_TIMEOUT => 5
-            ]);
-            
+            $this->db = \XF::db();
             return $this->db;
         }
         catch (\Exception $e)
