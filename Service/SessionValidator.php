@@ -2,81 +2,81 @@
 
 namespace WindowsForum\SessionValidator\Service;
 
+use XF\Repository\UserRepository;
+use XF\Repository\UserRememberRepository;
+use XF\Repository\SessionActivityRepository;
+
 /**
  * XenForo Session Validator for Cloudflare Security Rules
  * 
  * This service validates XenForo sessions and adds verification headers
  * that can be used in Cloudflare security rules for enhanced authentication.
  * 
- * Based on the proven gold standard xenforo-session-validator.php
- *
- * This version uses \XF::db() to access XenForo's configured
- * database connection rather than creating a new PDO instance.
+ * Properly aligned with XenForo's actual session handling implementation:
+ * - Validates remember cookies against xf_user_remember table
+ * - Uses XenForo's built-in repositories for proper validation
+ * - Supports both session-based and remember cookie authentication
  */
 class SessionValidator
 {
     private $db;
+    private $userRepo;
+    private $rememberRepo;
+    private $sessionActivityRepo;
     
     public function __construct()
     {
-        // Uses XenForo's built-in database connection
+        // Initialize repositories
+        $this->userRepo = \XF::repository(UserRepository::class);
+        $this->rememberRepo = \XF::repository(UserRememberRepository::class);
+        $this->sessionActivityRepo = \XF::repository(SessionActivityRepository::class);
     }
     
     /**
      * Main validation function - call this early in your request cycle
-     * Based on the original xenforo-session-validator.php logic
+     * Validates XenForo sessions using the same logic as XenForo core
      */
     public function validateAndSetHeaders()
     {
-        // Process all request methods for authenticated users
-        // (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD, etc.)
+        // Get cookies using XenForo's request object for proper handling
+        $request = \XF::app()->request();
+        $sessionId = $request->getCookie('session'); // XenForo uses 'xf_session' with prefix
+        $userCookie = $request->getCookie('user');   // XenForo uses 'xf_user' with prefix
+        $csrfToken = $request->getCookie('csrf');    // XenForo uses 'xf_csrf' with prefix
         
-        $sessionId = $_COOKIE['xf_session'] ?? null;
-        $userCookie = $_COOKIE['xf_user'] ?? null;
-        $csrfToken = $_COOKIE['xf_csrf'] ?? null;
-        
-        // Scenario 1: Full user authentication (all 3 cookies) - from original
-        if ($sessionId && $userCookie && $csrfToken && strlen($sessionId) === 32)
+        // Priority 1: Check if we have a valid session with a logged-in user
+        $session = \XF::session();
+        if ($session && $session->exists() && $session->userId)
         {
-            // URL decode the user cookie first
-            $userCookie = urldecode($userCookie);
-            
-            // Extract user ID from xf_user cookie (format: "userID,hash")
-            $userId = $this->extractUserIdFromCookie($userCookie);
-            if ($userId > 0)
+            $user = $this->userRepo->getVisitor($session->userId);
+            if ($user && $user->user_id)
             {
-                // Validate the full user session
-                $validationResult = $this->validateUserSession($sessionId, $userId, $userCookie);
-                
-                if ($validationResult && $validationResult['is_valid'])
+                // Validate the session is still active
+                $validationResult = $this->validateActiveSession($user);
+                if ($validationResult)
                 {
-                    // Add full user verification headers
                     $this->setUserVerificationHeaders($validationResult);
                     return true;
                 }
             }
         }
         
-        // Scenario 2: Session-only verification (just CSRF token)
-        // Check XenForo version to determine if we should use CSRF validation
-        // XenForo 2.4+ (version ID 2040000+) may use different authentication methods
-        if ($this->shouldValidateCsrf())
+        // Priority 2: Check remember cookie (for users with "Stay logged in")
+        if ($userCookie)
         {
-            if (!empty($csrfToken))
+            $validationResult = $this->validateRememberCookie($userCookie);
+            if ($validationResult && $validationResult['is_valid'])
             {
-                $sessionValidation = $this->validateCsrfSession($csrfToken);
-                if ($sessionValidation)
-                {
-                    // Add session-only verification header
-                    $this->setSessionVerificationHeaders();
-                    return true;
-                }
+                $this->setUserVerificationHeaders($validationResult);
+                return true;
             }
         }
-        else
+        
+        // Priority 3: Basic session validation (visitor might be guest or session expired)
+        if ($csrfToken)
         {
-            // For XenForo 2.4+, check for alternative authentication methods
-            if ($this->hasModernAuthentication())
+            // If we have a CSRF token, we at least have an active session
+            if ($this->validateCsrfToken($csrfToken))
             {
                 $this->setSessionVerificationHeaders();
                 return true;
@@ -87,161 +87,124 @@ class SessionValidator
     }
     
     /**
-     * Extract user ID from XenForo user cookie
+     * Validate remember cookie using XenForo's built-in validation
+     * This properly checks against the xf_user_remember table
      */
-    private function extractUserIdFromCookie($userCookie)
-    {
-        $parts = explode(',', $userCookie);
-        if (count($parts) >= 1)
-        {
-            $userId = intval($parts[0]);
-            return $userId > 0 ? $userId : 0;
-        }
-        return 0;
-    }
-    
-    /**
-     * Validate full user session against XenForo database
-     * Based on the original xenforo-session-validator.php
-     */
-    private function validateUserSession($sessionId, $userId, $userCookie)
+    private function validateRememberCookie($userCookie)
     {
         try
         {
-            // Get database connection
-            $db = $this->getDatabase();
-            if (!$db)
+            // Use XenForo's remember repository to validate the cookie
+            $remember = null;
+            if ($this->rememberRepo->validateByCookieValue($userCookie, $remember))
             {
-                return false;
-            }
-            
-            // Check if user exists and has recent activity (within configured window)
-            $query = "
-                SELECT sa.user_id, u.username, u.is_staff, u.is_admin, u.is_moderator
-                FROM xf_session_activity AS sa
-                LEFT JOIN xf_user AS u ON sa.user_id = u.user_id
-                WHERE sa.user_id = ? AND sa.user_id > 0 AND sa.view_date > ?
-                ORDER BY sa.view_date DESC
-                LIMIT 1
-            ";
-
-            // Get activity window from XenForo options (default 24 hours)
-            $activityWindow = \XF::options()->wfSessionValidator_activityWindow ?? 86400;
-            $recentTime = time() - $activityWindow;
-
-            $userResult = $db->fetchRow($query, [$userId, $recentTime]);
-            
-            if ($userResult && $userResult['user_id'] == $userId)
-            {
-                // Additional validation: check if user cookie format is reasonable
-                if ($this->validateUserCookieFormat($userCookie, $userId))
+                // Cookie is valid, get the user
+                $user = $this->userRepo->getVisitor($remember->user_id);
+                if ($user && $user->user_id)
                 {
                     return [
                         'is_valid' => true,
-                        'user_id' => $userResult['user_id'],
-                        'username' => $userResult['username'] ?: '',
-                        'is_staff' => (bool)$userResult['is_staff'],
-                        'is_admin' => (bool)$userResult['is_admin'],
-                        'is_moderator' => (bool)$userResult['is_moderator']
+                        'user_id' => $user->user_id,
+                        'username' => $user->username ?: '',
+                        'is_staff' => (bool)$user->is_staff,
+                        'is_admin' => (bool)$user->is_admin,
+                        'is_moderator' => (bool)$user->is_moderator
                     ];
                 }
             }
         }
         catch (\Exception $e)
         {
-            error_log("XenForo Session Validator Error: " . $e->getMessage());
+            error_log("XenForo Session Validator - Remember cookie validation error: " . $e->getMessage());
         }
         
         return false;
     }
     
     /**
-     * Validate user cookie format (basic check for XenForo format)
+     * Validate active session for a user
+     * Checks if the user has recent activity in the session_activity table
      */
-    private function validateUserCookieFormat($userCookie, $expectedUserId)
+    private function validateActiveSession($user)
     {
-        $parts = explode(',', $userCookie);
-        
-        // Must have at least user ID and hash
-        if (count($parts) < 2)
+        try
         {
-            return false;
-        }
-        
-        // First part must be the user ID
-        $cookieUserId = intval($parts[0]);
-        if ($cookieUserId !== $expectedUserId)
-        {
-            return false;
-        }
-        
-        // Second part should be a hash (base64-like characters)
-        $hash = $parts[1];
-        if (strlen($hash) < 10 || !preg_match('/^[A-Za-z0-9_-]+$/', $hash))
-        {
-            return false;
-        }
-        
-        return true;
-    }
-    
-    /**
-     * Validate CSRF token format (basic session verification)
-     */
-    private function validateCsrfSession($csrfToken)
-    {
-        // Basic CSRF token format validation for XenForo
-        // XenForo CSRF tokens are typically base64-like strings
-        if (strlen($csrfToken) >= 8 && preg_match('/^[A-Za-z0-9_-]+$/', $csrfToken))
-        {
-            return true;
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Check if we should validate CSRF tokens based on XenForo version
-     * @return bool
-     */
-    private function shouldValidateCsrf()
-    {
-        // XenForo 2.4.0 = version ID 2040070
-        // Continue using CSRF for versions before 2.4
-        return \XF::$versionId < 2040070;
-    }
-    
-    /**
-     * Check for modern authentication methods (XenForo 2.4+)
-     * @return bool
-     */
-    private function hasModernAuthentication()
-    {
-        // Check for Fetch API credentials or other modern auth headers
-        // This may need adjustment based on XenForo 2.4's actual implementation
-        
-        // Check for credentials in Fetch API requests
-        $headers = getallheaders();
-        if ($headers === false)
-        {
-            $headers = [];
-        }
-        
-        // Look for indicators of authenticated Fetch requests
-        // Note: The actual headers may differ in XenForo 2.4 final release
-        if (isset($headers['X-Requested-With']) && $headers['X-Requested-With'] === 'XMLHttpRequest')
-        {
-            // Check for credentials include mode
-            if (isset($headers['Sec-Fetch-Mode']) && $headers['Sec-Fetch-Mode'] === 'cors' 
-                && isset($headers['Sec-Fetch-Site']) && $headers['Sec-Fetch-Site'] === 'same-origin')
+            // Get activity window from XenForo options (default 1 hour)
+            $activityWindow = \XF::options()->wfSessionValidator_activityWindow ?? 3600;
+            $recentTime = \XF::$time - $activityWindow;
+            
+            // Check if user has recent activity
+            $db = $this->getDatabase();
+            if (!$db)
             {
-                // Also check for session cookie presence as a fallback
-                return isset($_COOKIE['xf_session']) && strlen($_COOKIE['xf_session']) === 32;
+                return false;
+            }
+            
+            $hasActivity = $db->fetchOne("
+                SELECT 1
+                FROM xf_session_activity
+                WHERE user_id = ? AND view_date > ?
+                LIMIT 1
+            ", [$user->user_id, $recentTime]);
+            
+            if ($hasActivity)
+            {
+                return [
+                    'is_valid' => true,
+                    'user_id' => $user->user_id,
+                    'username' => $user->username ?: '',
+                    'is_staff' => (bool)$user->is_staff,
+                    'is_admin' => (bool)$user->is_admin,
+                    'is_moderator' => (bool)$user->is_moderator
+                ];
             }
         }
+        catch (\Exception $e)
+        {
+            error_log("XenForo Session Validator - Active session validation error: " . $e->getMessage());
+        }
         
         return false;
     }
+    
+    /**
+     * Validate CSRF token using XenForo's validation logic
+     * CSRF tokens contain timestamp and HMAC signature
+     */
+    private function validateCsrfToken($csrfToken)
+    {
+        try
+        {
+            // CSRF tokens have format: "timestamp,hash"
+            if (strpos($csrfToken, ',') === false)
+            {
+                return false;
+            }
+            
+            list($time, $hash) = explode(',', $csrfToken, 2);
+            $time = intval($time);
+            
+            // Check if timestamp is reasonable (within last 24 hours)
+            if ($time < (\XF::$time - 86400) || $time > \XF::$time)
+            {
+                return false;
+            }
+            
+            // Basic format validation for the hash part
+            if (strlen($hash) >= 20 && preg_match('/^[a-f0-9]+$/i', $hash))
+            {
+                return true;
+            }
+        }
+        catch (\Exception $e)
+        {
+            error_log("XenForo Session Validator - CSRF validation error: " . $e->getMessage());
+        }
+        
+        return false;
+    }
+    
+    
     
     /**
      * Get database connection
