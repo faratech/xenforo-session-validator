@@ -58,14 +58,26 @@ class SessionValidator
         }
         
         // Scenario 2: Session-only verification (just CSRF token)
-        // The initial "$csrfToken &&" check was redundant
-        // because !empty($csrfToken) already covers it
-        if (!empty($csrfToken))
+        // Check XenForo version to determine if we should use CSRF validation
+        // XenForo 2.4+ (version ID 2040000+) may use different authentication methods
+        if ($this->shouldValidateCsrf())
         {
-            $sessionValidation = $this->validateCsrfSession($csrfToken);
-            if ($sessionValidation)
+            if (!empty($csrfToken))
             {
-                // Add session-only verification header
+                $sessionValidation = $this->validateCsrfSession($csrfToken);
+                if ($sessionValidation)
+                {
+                    // Add session-only verification header
+                    $this->setSessionVerificationHeaders();
+                    return true;
+                }
+            }
+        }
+        else
+        {
+            // For XenForo 2.4+, check for alternative authentication methods
+            if ($this->hasModernAuthentication())
+            {
                 $this->setSessionVerificationHeaders();
                 return true;
             }
@@ -104,20 +116,20 @@ class SessionValidator
             }
             
             // Check if user exists and has recent activity (within configured window)
-            $stmt = $db->prepare("
-                SELECT sa.user_id, u.username, u.is_staff, u.is_admin, u.is_moderator 
-                FROM xf_session_activity sa
-                LEFT JOIN xf_user u ON sa.user_id = u.user_id 
+            $query = "
+                SELECT sa.user_id, u.username, u.is_staff, u.is_admin, u.is_moderator
+                FROM xf_session_activity AS sa
+                LEFT JOIN xf_user AS u ON sa.user_id = u.user_id
                 WHERE sa.user_id = ? AND sa.user_id > 0 AND sa.view_date > ?
                 ORDER BY sa.view_date DESC
                 LIMIT 1
-            ");
-            
+            ";
+
             // Get activity window from XenForo options (default 24 hours)
             $activityWindow = \XF::options()->wfSessionValidator_activityWindow ?? 86400;
             $recentTime = time() - $activityWindow;
-            $stmt->execute([$userId, $recentTime]);
-            $userResult = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            $userResult = $db->fetchRow($query, [$userId, $recentTime]);
             
             if ($userResult && $userResult['user_id'] == $userId)
             {
@@ -183,6 +195,49 @@ class SessionValidator
         if (strlen($csrfToken) >= 8 && preg_match('/^[A-Za-z0-9_-]+$/', $csrfToken))
         {
             return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if we should validate CSRF tokens based on XenForo version
+     * @return bool
+     */
+    private function shouldValidateCsrf()
+    {
+        // XenForo 2.4.0 = version ID 2040070
+        // Continue using CSRF for versions before 2.4
+        return \XF::$versionId < 2040070;
+    }
+    
+    /**
+     * Check for modern authentication methods (XenForo 2.4+)
+     * @return bool
+     */
+    private function hasModernAuthentication()
+    {
+        // Check for Fetch API credentials or other modern auth headers
+        // This may need adjustment based on XenForo 2.4's actual implementation
+        
+        // Check for credentials in Fetch API requests
+        $headers = getallheaders();
+        if ($headers === false)
+        {
+            $headers = [];
+        }
+        
+        // Look for indicators of authenticated Fetch requests
+        // Note: The actual headers may differ in XenForo 2.4 final release
+        if (isset($headers['X-Requested-With']) && $headers['X-Requested-With'] === 'XMLHttpRequest')
+        {
+            // Check for credentials include mode
+            if (isset($headers['Sec-Fetch-Mode']) && $headers['Sec-Fetch-Mode'] === 'cors' 
+                && isset($headers['Sec-Fetch-Site']) && $headers['Sec-Fetch-Site'] === 'same-origin')
+            {
+                // Also check for session cookie presence as a fallback
+                return isset($_COOKIE['xf_session']) && strlen($_COOKIE['xf_session']) === 32;
+            }
         }
         
         return false;
