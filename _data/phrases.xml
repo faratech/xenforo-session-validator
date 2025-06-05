@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <phrases>
-  <phrase title="option.wfSessionValidator_activityWindow" version_id="1000070" version_string="1.0.0"><![CDATA[Activity window (seconds)]]></phrase>
   <phrase title="option.wfSessionValidator_enabled" version_id="1000070" version_string="1.0.0"><![CDATA[Enable session validation]]></phrase>
   <phrase title="option.wfSessionValidator_verboseOutput" version_id="1000070" version_string="1.0.0"><![CDATA[Verbose output]]></phrase>
-  <phrase title="option_explain.wfSessionValidator_activityWindow" version_id="1000070" version_string="1.0.0"><![CDATA[How many seconds of recent activity to consider when validating user sessions. Default is 86400 (24 hours).]]></phrase>
-  <phrase title="option_explain.wfSessionValidator_enabled" version_id="1000070" version_string="1.0.0"><![CDATA[When enabled, the session validator will check XenForo sessions and set verification headers for Cloudflare security rules.]]></phrase>
+  <phrase title="option_explain.wfSessionValidator_enabled" version_id="1000070" version_string="1.0.0"><![CDATA[When enabled, the session validator will set verification headers for Cloudflare security rules based on XenForo's validated sessions.]]></phrase>
   <phrase title="option_explain.wfSessionValidator_verboseOutput" version_id="1000070" version_string="1.0.0"><![CDATA[When enabled, additional headers will be included (user ID, username, staff status, etc.). Disabled by default for minimal header footprint.]]></phrase>
+  <phrase title="option.wfSessionValidator_cloudflareOnly" version_id="1000070" version_string="1.0.0"><![CDATA[Only set headers for Cloudflare requests]]></phrase>
+  <phrase title="option_explain.wfSessionValidator_cloudflareOnly" version_id="1000070" version_string="1.0.0"><![CDATA[When enabled, validation headers will only be sent for requests coming through Cloudflare (detected by CF-Ray and CF-Connecting-IP headers). Recommended for security to prevent exposing user information to non-Cloudflare requests.]]></phrase>
   <phrase title="option_group.wfSessionValidator" version_id="1000070" version_string="1.0.0"><![CDATA[Session Validator for Cloudflare]]></phrase>
   <phrase title="option_group.wfSessionValidator_description" version_id="1000070" version_string="1.0.0"><![CDATA[Configure session validation settings for Cloudflare security integration.]]></phrase>
 </phrases>

@@ -15,11 +15,19 @@ class SessionValidator
 {
     /**
      * Main function - sets headers based on XenForo's already-validated session
+     * @return void
      */
     public function validateAndSetHeaders()
     {
         try
         {
+            // Security check: Only set headers for Cloudflare requests
+            if (!$this->isCloudflareRequest())
+            {
+                // Not from Cloudflare, don't expose any headers
+                return;
+            }
+            
             // Get the visitor (current user) - already validated by XenForo
             $visitor = \XF::visitor();
             
@@ -48,7 +56,84 @@ class SessionValidator
     }
     
     /**
+     * Check if the request is coming through Cloudflare
+     * Uses the same logic as XenForo's internal IP handling
+     * @return bool
+     */
+    private function isCloudflareRequest()
+    {
+        // Check if Cloudflare-only mode is enabled
+        $cloudflareOnly = \XF::options()->wfSessionValidator_cloudflareOnly ?? true;
+        if (!$cloudflareOnly)
+        {
+            // Admin has disabled Cloudflare-only mode, allow all requests
+            return true;
+        }
+        
+        // Get the request object
+        $request = \XF::app()->request();
+        
+        // Check if we have CF-Connecting-IP header
+        $cfConnectingIp = $request->getServer('HTTP_CF_CONNECTING_IP');
+        if (empty($cfConnectingIp))
+        {
+            return false;
+        }
+        
+        // Get the actual remote IP (the IP that connected to the server)
+        $remoteIp = $request->getServer('REMOTE_ADDR');
+        
+        // If CF-Connecting-IP exists and is different from REMOTE_ADDR,
+        // AND the remote IP is from Cloudflare's ranges, then it's a valid CF request
+        // This is exactly how XenForo validates it in getTrustedRealIp()
+        if ($cfConnectingIp !== $remoteIp && $this->ipMatchesCloudflareRanges($remoteIp))
+        {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if an IP matches Cloudflare's IP ranges
+     * Reimplemented since XenForo's method is protected
+     * @param string $ip
+     * @return bool
+     */
+    private function ipMatchesCloudflareRanges($ip)
+    {
+        if (!$ip)
+        {
+            return false;
+        }
+        
+        // Check against Cloudflare's IP ranges from XenForo's Request class
+        $ranges = \XF\Http\Request::$cloudFlareIps;
+        
+        // Determine if IPv4 or IPv6
+        $isIpv6 = strpos($ip, ':') !== false;
+        $checkRanges = $isIpv6 ? ($ranges['v6'] ?? []) : ($ranges['v4'] ?? []);
+        
+        foreach ($checkRanges as $range)
+        {
+            // Parse CIDR notation
+            if (strpos($range, '/') !== false)
+            {
+                list($rangeIp, $cidr) = explode('/', $range);
+                if (\XF\Util\Ip::ipMatchesCidrRange($ip, $rangeIp, $cidr))
+                {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
      * Set full user verification headers
+     * @param array $userData
+     * @return void
      */
     private function setUserVerificationHeaders($userData)
     {
@@ -75,6 +160,7 @@ class SessionValidator
     
     /**
      * Set session-only verification headers
+     * @return void
      */
     private function setSessionVerificationHeaders()
     {
