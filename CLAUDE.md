@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **XenForo 2.2+ addon** that validates user sessions server-side and provides verification headers for Cloudflare WAF rules. It properly integrates with XenForo's session management system.
+This is a **XenForo 2.2+ addon** that provides two main features:
+1. **Session Validator**: Validates user sessions server-side and provides verification headers for Cloudflare WAF rules
+2. **Cache Optimizer**: Sets intelligent cache headers based on content age with special handling for Windows News forum
 
 ## Essential Commands
 
@@ -27,165 +29,121 @@ php cmd.php xf-addon:build-release WindowsForum/SessionValidator
 
 ## Architecture
 
-**Event-Driven Design**: The addon hooks into XenForo's app lifecycle events (`app_setup`, `app_admin_setup`, `app_api_setup`) to validate sessions before any controller logic runs.
+### Event-Driven Design
+The addon hooks into XenForo's app lifecycle events:
+- `app_setup`, `app_admin_setup`, `app_api_setup`: Early session validation
+- `app_pub_complete`: Late-stage cache header optimization
 
-**Key Components**:
-- `Listener.php`: Registers the session validator service early in the request
-- `Service/SessionValidator.php`: Core validation logic that:
-  - Checks active XenForo sessions via `\XF::session()`
-  - Validates remember cookies against `xf_user_remember` table
-  - Verifies CSRF tokens with timestamp validation
-  - Sets HTTP headers for Cloudflare WAF
+### Key Components
 
-**Data Flow**:
-1. Request arrives → Listener hooks app setup
-2. SessionValidator checks (in priority order):
-   - Active session with logged-in user
-   - Remember cookie validation
-   - CSRF token for basic session
-3. Headers set based on validation result
-4. Cloudflare WAF rules use headers for security decisions
+**SessionValidator** (`Service/SessionValidator.php`):
+- Validates sessions using XenForo's visitor system
+- Only exposes headers to Cloudflare requests (security feature)
+- Sets verification headers for WAF rules
 
-## How the Validator Works
+**CacheOptimizer** (`Service/CacheOptimizer.php`):
+- Sets cache headers based on content type and age
+- Special handling for Windows News forum (node ID 4)
+- Prevents caching for logged-in users
 
-### Session Validation Flow (Priority Order)
+**Listener** (`Listener.php`):
+- Registers services at appropriate lifecycle events
+- Checks addon options before execution
 
-1. **Active Session Check**:
-   - Uses `\XF::session()` to check for active logged-in user
-   - Validates against `xf_session_activity` table for recent activity
-   - Most reliable method for currently active users
+## How It Works
 
-2. **Remember Cookie Validation**:
-   - Validates `xf_user` cookie (format: "userId,rememberKey")
-   - Uses `UserRememberRepository::validateByCookieValue()`
-   - Checks against `xf_user_remember` table
-   - Handles "Stay logged in" functionality
+### Session Validation
+1. Checks if request is from Cloudflare (via CF-Connecting-IP header)
+2. Uses XenForo's visitor object (`\XF::visitor()`) for authentication
+3. Sets headers based on user status:
+   - `XF-Verified-User: true` - Authenticated user
+   - `XF-Verified-Session: true` - Valid session exists
+   - Additional headers in verbose mode (user ID, permissions)
 
-3. **CSRF Token Fallback**:
-   - Validates `xf_csrf` token format ("timestamp,hash")
-   - Checks timestamp is within reasonable range
-   - Provides basic session validation for guests
+### Cache Optimization
+1. Analyzes route path to determine content type
+2. For threads: Calculates age and sets cache duration accordingly
+3. Windows News (node 4) gets extended cache times
+4. Logged-in users always get no-cache headers
 
-### Cookie Handling
-- Uses XenForo's request object: `$request->getCookie()`
-- Automatically handles cookie prefix (e.g., 'xf_')
-- No manual URL decoding needed
+## Configuration Options
 
-## Configuration
+Defined in `_data/options.xml`:
 
-Options are defined in `_data/options.xml` and accessible via `\XF::options()->optionName`:
-- `wfSessionValidator_enabled`: Enable/disable addon
-- `wfSessionValidator_activityWindow`: Session activity timeout (default: 3600 seconds)
-- `wfSessionValidator_verboseOutput`: Include detailed user info in headers
+### Session Validator Options
+- `wfSessionValidator_enabled`: Enable session validation
+- `wfSessionValidator_cloudflareOnly`: Only set headers for Cloudflare requests
+- `wfSessionValidator_verboseOutput`: Include user details in headers
 
-## Technical Implementation Details
+### Cache Optimizer Options
+- `wfCacheOptimizer_enabled`: Enable cache optimization
+- `wfCacheOptimizer_extendedCacheNodes`: Comma-separated node IDs for extended cache (default: "4")
+- `wfCacheOptimizer_homepage`: Homepage cache duration (default: 600)
+- `wfCacheOptimizer_homepageEdgeCache`: Homepage edge cache s-maxage (default: 600)
+
+### Thread Age Thresholds
+- `wfCacheOptimizer_ageThreshold1Day`: Fresh content threshold (default: 86400)
+- `wfCacheOptimizer_ageThreshold7Days`: Recent content threshold (default: 604800)
+- `wfCacheOptimizer_ageThreshold30Days`: Older content threshold (default: 2592000)
+- `wfCacheOptimizer_ancientThreshold`: Ancient content threshold (default: 315360000 = 10 years)
+
+### Cache Durations
+Standard nodes:
+- `wfCacheOptimizer_threadFresh`: <24h old threads (default: 600)
+- `wfCacheOptimizer_thread1Day`: 1-7 days old (default: 7200)
+- `wfCacheOptimizer_thread7Days`: 7-30 days old (default: 86400)
+- `wfCacheOptimizer_thread30Days`: 30+ days old (default: 604800)
+- `wfCacheOptimizer_ancientCache`: Ancient content (default: 31536000 = 1 year)
+
+Extended cache nodes:
+- `wfCacheOptimizer_extendedThreadFresh`: <24h old (default: 3600)
+- `wfCacheOptimizer_extendedThread1Day`: 1-7 days (default: 86400)
+- `wfCacheOptimizer_extendedThread7Days`: 7-30 days (default: 604800)
+- `wfCacheOptimizer_extendedThread30Days`: 30+ days (default: 2592000)
+
+## Technical Implementation
 
 ### XenForo Integration
-- Uses XenForo repositories for proper data access:
-  - `UserRepository` - User data retrieval
-  - `UserRememberRepository` - Remember cookie validation
-  - `SessionActivityRepository` - Activity tracking
+- Uses `\XF::visitor()` for user authentication
+- Leverages `\XF::app()->request()` for request data
+- Respects XenForo's response object for header management
 
-### Database Tables Used
-- `xf_session_activity` - Tracks active user sessions
-- `xf_user_remember` - Stores remember cookie tokens
-- `xf_user` - User account data
+### Security Features
+- Cloudflare IP validation using `\XF\Http\Request::$cloudFlareIps`
+- Uses `\XF\Util\Ip::ipMatchesCidrRange()` for IP range checking
+- Headers only exposed to verified Cloudflare requests
 
-### Cookie Formats
-- `xf_session`: 32-character random string
-- `xf_user`: "userId,rememberKey" (e.g., "123,AbCdEfGhIjKl")
-- `xf_csrf`: "timestamp,hash" (e.g., "1701234567,a1b2c3d4e5f6")
+### Cache Header Protection
+- **Force Headers Mode**: Aggressively overwrites headers from XenForo/other addons
+- **Early Intervention**: Uses `controller_post_dispatch` to disable XenForo's page caching
+- **Multiple Clear Methods**: Both XenForo's removeHeader() and PHP's header_remove()
+- **Cloudflare-CDN-Cache-Control**: Sets specific header for Cloudflare to respect
+- **X-Cache-Optimizer**: Identifies our headers for debugging
 
-## Headers Set
-
-### Basic Validation Headers
-- `XF-Verified-User: true` - Authenticated user confirmed
-- `XF-Verified-Session: true` - Valid session exists
-- `XF-Session-Validated: [timestamp]` - ISO 8601 validation time
-
-### Verbose Mode Headers (optional)
-- `XF-User-ID: [user_id]`
-- `XF-Username: [username]`
-- `XF-Is-Staff: true/false`
-- `XF-Is-Admin: true/false`
-- `XF-Is-Moderator: true/false`
-
-## Troubleshooting Guide
-
-### Issue: Headers not appearing
-1. Check if add-on is enabled in Admin CP
-2. Verify cookies are present: Developer Tools → Application → Cookies
-3. Check XenForo's cookie prefix in config.php
-4. Ensure no output before headers (check for whitespace)
-5. Check error_log for exceptions
-
-### Issue: Valid users being blocked
-1. Verify activity window setting (default 3600 = 1 hour)
-2. Check if user has active session: 
-   ```sql
-   SELECT * FROM xf_session_activity WHERE user_id = ? AND view_date > ?
-   ```
-3. Verify remember cookies:
-   ```sql
-   SELECT * FROM xf_user_remember WHERE user_id = ?
-   ```
-4. Check cookie domain/path settings match XenForo config
-
-### Issue: Remember cookies not validating
-1. Check xf_user_remember table has entries
-2. Verify cookie format is "userId,key"
-3. Ensure remember cookies haven't expired
-4. Check UserRememberRepository logs
+### Cache Strategy
+- **Fresh content** (<24h): Short cache (10 min - 1 hour)
+- **Recent content** (1-7 days): Medium cache (2-24 hours)
+- **Older content** (7-30 days): Long cache (1-7 days)
+- **Archived content** (>30 days): Extended cache (7-30 days)
+- **Ancient content** (>10 years): Maximum cache (1 year)
+- **Extended cache nodes**: Get longer cache times at each tier
+- **Edge cache (s-maxage)**: Set separately for CDN/proxy caching
 
 ## Development Notes
 
 - No build process - XenForo compiles at runtime
-- Changes to XML files in `_data/` require rebuild or reinstall
-- The `_releases/` directory is gitignored for package output
-- `hashes.json` is auto-generated for file integrity
-- Always use XenForo's abstractions:
-  - Database: `\XF::db()` or repositories
-  - Request: `\XF::app()->request()`
-  - Session: `\XF::session()`
-
-## Integration Best Practices
-
-1. **Early Loading**: Listener on `app_setup` for early execution
-2. **Repository Pattern**: Uses XenForo's repositories for consistency
-3. **Error Handling**: Try-catch blocks with error logging
-4. **Performance**: Minimal queries, leverages XenForo's caching
-5. **Security**: 
-   - Validates remember tokens properly
-   - CSRF timestamp validation
-   - No direct cookie manipulation
-6. **Privacy**: Verbose output controlled by admin option
-
-## Key Differences from Standalone Version
-
-1. **Proper Cookie Validation**:
-   - Old: Basic format checks
-   - New: Full validation against database tables
-
-2. **XenForo Integration**:
-   - Old: Direct database queries
-   - New: Repository pattern, proper abstraction
-
-3. **Session Priority**:
-   - Old: Cookie-first approach
-   - New: Active session → Remember cookie → CSRF
-
-4. **Cookie Handling**:
-   - Old: Manual $_COOKIE access
-   - New: XenForo's request object with prefix handling
+- Changes to XML files in `_data/` require rebuild command
+- Headers must be set before any output
+- Always check `headers_sent()` before setting headers
+- Use try-catch blocks to prevent disrupting requests
 
 ## Testing Checklist
 
-1. [ ] Install addon via Admin CP
-2. [ ] Enable in options
-3. [ ] Test with logged-in user (should set XF-Verified-User)
-4. [ ] Test with remember cookie (logout, close browser, return)
-5. [ ] Test with guest (should only set XF-Verified-Session if CSRF present)
-6. [ ] Check headers in browser developer tools
-7. [ ] Create Cloudflare rule using headers
-8. [ ] Test with activity window edge cases
-9. [ ] Verify error handling with DB issues
+1. [ ] Enable addon in Admin CP options
+2. [ ] Verify headers appear in browser dev tools (Network tab)
+3. [ ] Test with logged-in user (should see verification headers)
+4. [ ] Test with guest (should see session headers only)
+5. [ ] Verify cache headers on different content types
+6. [ ] Check Windows News threads get extended cache
+7. [ ] Confirm headers only appear for Cloudflare requests
+8. [ ] Test error handling with invalid thread/forum IDs

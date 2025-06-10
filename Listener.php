@@ -60,4 +60,69 @@ class Listener
         $validator = new Service\SessionValidator();
         $validator->validateAndSetHeaders();
     }
+    
+    /**
+     * Listen to the app_pub_complete event to set cache headers based on content age
+     */
+    public static function appPubComplete(\XF\App $app, \XF\Http\Response $response)
+    {
+        // Only run on public-facing requests
+        if (!($app instanceof \XF\Pub\App))
+        {
+            return;
+        }
+        
+        // Check if cache optimization is enabled
+        $options = $app->options();
+        if (empty($options->wfCacheOptimizer_enabled))
+        {
+            return;
+        }
+        
+        // Skip if not a successful response
+        if ($response->httpCode() !== 200)
+        {
+            return;
+        }
+        
+        // Initialize and run the cache optimizer
+        $optimizer = new Service\CacheOptimizer();
+        $optimizer->setCacheHeaders();
+    }
+    
+    /**
+     * Listen to controller_post_dispatch to pre-emptively disable XenForo's page caching headers
+     */
+    public static function controllerPostDispatch(\XF\Mvc\Controller $controller, $action, \XF\Mvc\ParameterBag $params, \XF\Mvc\Reply\AbstractReply &$reply)
+    {
+        // Only run on public-facing requests
+        $app = $controller->app();
+        if (!($app instanceof \XF\Pub\App))
+        {
+            return;
+        }
+        
+        // Check if cache optimization is enabled
+        $options = $app->options();
+        if (empty($options->wfCacheOptimizer_enabled))
+        {
+            return;
+        }
+        
+        // If this is a View reply (normal page), disable XenForo's page caching
+        if ($reply instanceof \XF\Mvc\Reply\View)
+        {
+            // Disable XenForo's internal page caching for this response
+            $reply->setPageParam('noPageCache', true);
+            
+            // Also try to clear any cache control headers that might have been set early
+            $response = $app->response();
+            if ($response && ($options->wfCacheOptimizer_forceHeaders ?? true))
+            {
+                $response->removeHeader('Cache-Control');
+                $response->removeHeader('Pragma');
+                $response->removeHeader('Expires');
+            }
+        }
+    }
 }

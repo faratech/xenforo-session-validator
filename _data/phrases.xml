@@ -6,6 +6,142 @@
   <phrase title="option_explain.wfSessionValidator_verboseOutput" version_id="1000070" version_string="1.0.0"><![CDATA[When enabled, additional headers will be included (user ID, username, staff status, etc.). Disabled by default for minimal header footprint.]]></phrase>
   <phrase title="option.wfSessionValidator_cloudflareOnly" version_id="1000070" version_string="1.0.0"><![CDATA[Only set headers for Cloudflare requests]]></phrase>
   <phrase title="option_explain.wfSessionValidator_cloudflareOnly" version_id="1000070" version_string="1.0.0"><![CDATA[When enabled, validation headers will only be sent for requests coming through Cloudflare (detected by CF-Ray and CF-Connecting-IP headers). Recommended for security to prevent exposing user information to non-Cloudflare requests.]]></phrase>
-  <phrase title="option_group.wfSessionValidator" version_id="1000070" version_string="1.0.0"><![CDATA[Session Validator for Cloudflare]]></phrase>
-  <phrase title="option_group.wfSessionValidator_description" version_id="1000070" version_string="1.0.0"><![CDATA[Configure session validation settings for Cloudflare security integration.]]></phrase>
+  <phrase title="option_group.wfSessionValidator" version_id="1000070" version_string="1.0.0"><![CDATA[Session Validator & Cache Optimizer]]></phrase>
+  <phrase title="option_group.wfSessionValidator_description" version_id="1000070" version_string="1.0.0"><![CDATA[Configure session validation and cache optimization settings.]]></phrase>
+  
+  <!-- Cache Optimizer Phrases -->
+  <phrase title="option.wfCacheOptimizer_enabled" version_id="1020000" version_string="1.2.0"><![CDATA[Enable cache optimization]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_enabled" version_id="1020000" version_string="1.2.0"><![CDATA[When enabled, sets intelligent cache headers based on content type and age. Only applies to guest visitors.]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_forceHeaders" version_id="1030000" version_string="1.3.0"><![CDATA[Force cache headers]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_forceHeaders" version_id="1030000" version_string="1.3.0"><![CDATA[When enabled, aggressively overwrites any cache headers set by XenForo or other addons to ensure our settings take precedence. This prevents conflicts with Cloudflare addon or XenForo's internal caching.]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_homepage" version_id="1020000" version_string="1.2.0"><![CDATA[Homepage cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_homepage" version_id="1020000" version_string="1.2.0"><![CDATA[How long to cache the homepage. Default: 600 (10 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_whatsNew" version_id="1020000" version_string="1.2.0"><![CDATA[What's New cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_whatsNew" version_id="1020000" version_string="1.2.0"><![CDATA[How long browsers should cache What's New pages. Default: 300 (5 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_whatsNewEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[What's New edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_whatsNewEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[How long CDN/proxies should cache What's New pages (s-maxage). Default: 300 (5 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_forums" version_id="1020000" version_string="1.2.0"><![CDATA[Forum listings cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_forums" version_id="1020000" version_string="1.2.0"><![CDATA[How long browsers should cache forum listing pages. Default: 900 (15 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_forumsEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Forum listings edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_forumsEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[How long CDN/proxies should cache forum listings (s-maxage). Default: 1800 (30 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_windowsNews" version_id="1020000" version_string="1.2.0"><![CDATA[Extended nodes cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_windowsNews" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache duration for extended cache nodes. Default: 3600 (1 hour)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_windowsNewsEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended nodes edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_windowsNewsEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache duration (s-maxage) for extended cache nodes. Default: 7200 (2 hours)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_search" version_id="1020000" version_string="1.2.0"><![CDATA[Search results cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_search" version_id="1020000" version_string="1.2.0"><![CDATA[How long browsers should cache search result pages. Default: 1800 (30 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_searchEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Search results edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_searchEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache duration (s-maxage) for search results. Default: 3600 (1 hour)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_members" version_id="1020000" version_string="1.2.0"><![CDATA[Members directory cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_members" version_id="1020000" version_string="1.2.0"><![CDATA[How long browsers should cache member listing pages. Default: 3600 (1 hour)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_membersEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Members directory edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_membersEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache duration (s-maxage) for member listings. Default: 7200 (2 hours)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_help" version_id="1020000" version_string="1.2.0"><![CDATA[Help pages cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_help" version_id="1020000" version_string="1.2.0"><![CDATA[How long browsers should cache help pages. Default: 604800 (7 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_helpEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Help pages edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_helpEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache duration (s-maxage) for help pages. Default: 604800 (7 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_media" version_id="1020000" version_string="1.2.0"><![CDATA[Media gallery cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_media" version_id="1020000" version_string="1.2.0"><![CDATA[How long browsers should cache media gallery pages. Default: 1800 (30 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_mediaEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Media gallery edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_mediaEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache duration (s-maxage) for media gallery. Default: 3600 (1 hour)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_resources" version_id="1020000" version_string="1.2.0"><![CDATA[Resources cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_resources" version_id="1020000" version_string="1.2.0"><![CDATA[How long browsers should cache resource manager pages. Default: 3600 (1 hour)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_resourcesEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Resources edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_resourcesEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache duration (s-maxage) for resources. Default: 7200 (2 hours)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_default" version_id="1020000" version_string="1.2.0"><![CDATA[Default cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_default" version_id="1020000" version_string="1.2.0"><![CDATA[Default browser cache duration for unmatched pages. Default: 900 (15 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_defaultEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Default edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_defaultEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Default CDN/proxy cache duration (s-maxage) for unmatched pages. Default: 1800 (30 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_threadFresh" version_id="1020000" version_string="1.2.0"><![CDATA[Fresh thread cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_threadFresh" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache duration for threads less than 24 hours old. Default: 600 (10 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_threadFreshEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Fresh thread edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_threadFreshEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for fresh threads. Default: 1800 (30 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_thread1Day" version_id="1020000" version_string="1.2.0"><![CDATA[1-7 day old thread cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_thread1Day" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache duration for threads 1-7 days old. Default: 7200 (2 hours)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_thread1DayEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[1-7 day thread edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_thread1DayEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 1-7 day old threads. Default: 21600 (6 hours)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_thread7Days" version_id="1020000" version_string="1.2.0"><![CDATA[7-30 day old thread cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_thread7Days" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache duration for threads 7-30 days old. Default: 86400 (1 day)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_thread7DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[7-30 day thread edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_thread7DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 7-30 day old threads. Default: 259200 (3 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_thread30Days" version_id="1020000" version_string="1.2.0"><![CDATA[30+ day old thread cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_thread30Days" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache duration for threads older than 30 days. Default: 604800 (7 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_thread30DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[30+ day thread edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_thread30DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for threads older than 30 days. Default: 2592000 (30 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedCacheNodes" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache node IDs]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedCacheNodes" version_id="1020000" version_string="1.2.0"><![CDATA[Comma-separated list of forum node IDs that should receive extended cache times (e.g., "4,15,23"). These nodes will use the extended cache settings below.]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_homepageEdgeCache" version_id="1020000" version_string="1.2.0"><![CDATA[Homepage edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_homepageEdgeCache" version_id="1020000" version_string="1.2.0"><![CDATA[Edge cache (s-maxage) duration for homepage. Can be same or higher than browser cache. Default: 600 (10 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThreadFresh" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache: Fresh thread duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThreadFresh" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for fresh threads in extended cache nodes. Default: 3600 (1 hour)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThreadFreshEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended cache: Fresh thread edge duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThreadFreshEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for fresh threads in extended nodes. Default: 7200 (2 hours)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThread1Day" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache: 1-7 day thread duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread1Day" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for 1-7 day threads in extended cache nodes. Default: 86400 (1 day)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThread1DayEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended cache: 1-7 day thread edge duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread1DayEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 1-7 day threads in extended nodes. Default: 172800 (2 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThread7Days" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache: 7-30 day thread duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread7Days" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for 7-30 day threads in extended cache nodes. Default: 604800 (7 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThread7DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended cache: 7-30 day thread edge duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread7DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 7-30 day threads in extended nodes. Default: 1209600 (14 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThread30Days" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache: 30+ day thread duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread30Days" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for threads older than 30 days in extended nodes. Default: 2592000 (30 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_extendedThread30DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended cache: 30+ day thread edge duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread30DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 30+ day threads in extended nodes. Default: 7776000 (90 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_ageThreshold1Day" version_id="1020000" version_string="1.2.0"><![CDATA[Age threshold: Fresh to 1 day (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_ageThreshold1Day" version_id="1020000" version_string="1.2.0"><![CDATA[Content younger than this is considered "fresh". Default: 86400 (24 hours)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_ageThreshold7Days" version_id="1020000" version_string="1.2.0"><![CDATA[Age threshold: 1 day to 7 days (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_ageThreshold7Days" version_id="1020000" version_string="1.2.0"><![CDATA[Content older than 1 day but younger than this is "recent". Default: 604800 (7 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_ageThreshold30Days" version_id="1020000" version_string="1.2.0"><![CDATA[Age threshold: 7 days to 30 days (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_ageThreshold30Days" version_id="1020000" version_string="1.2.0"><![CDATA[Content older than 7 days but younger than this is "older". Default: 2592000 (30 days)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_ancientThreshold" version_id="1020000" version_string="1.2.0"><![CDATA[Ancient content threshold (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_ancientThreshold" version_id="1020000" version_string="1.2.0"><![CDATA[Content older than this is considered "ancient" and gets maximum cache. Default: 315360000 (10 years)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_ancientCache" version_id="1020000" version_string="1.2.0"><![CDATA[Ancient content cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_ancientCache" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache duration for ancient content (e.g., 10+ year old threads). Default: 31536000 (1 year)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_ancientCacheEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Ancient content edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_ancientCacheEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for ancient content. Default: 31536000 (1 year)]]></phrase>
 </phrases>
