@@ -5,4 +5,7 @@
   <listener event_id="app_setup" execute_order="10" callback_class="WindowsForum\SessionValidator\Listener" callback_method="appSetup" active="1" description="Validates XenForo sessions and sets Cloudflare verification headers"/>
   <listener event_id="app_pub_complete" execute_order="9999" callback_class="WindowsForum\SessionValidator\Listener" callback_method="appPubComplete" active="1" description="Sets cache headers based on thread age with special handling for Windows News"/>
   <listener event_id="controller_post_dispatch" execute_order="1" callback_class="WindowsForum\SessionValidator\Listener" callback_method="controllerPostDispatch" active="1" description="Early cache header setting to override XenForo defaults"/>
+  <listener event_id="visitor_setup" execute_order="10" callback_class="WindowsForum\SessionValidator\Listener" callback_method="visitorSetup" active="1" description="Detect login/logout and set cache bypass"/>
+  <listener event_id="controller_pre_action" execute_order="10" callback_class="WindowsForum\SessionValidator\Listener" callback_method="controllerPreAction" active="1" description="Set cache bypass for login/logout actions"/>
+  <listener event_id="controller_post_action" execute_order="10" callback_class="WindowsForum\SessionValidator\Listener" callback_method="controllerPostAction" active="1" description="Add cache buster to login/logout redirects"/>
 </code_event_listeners>

@@ -29,6 +29,13 @@ class CacheOptimizer
         }
         
         $visitor = \XF::visitor();
+        $request = $this->app->request();
+        
+        // Check for cache bypass cookie (set after login/logout)
+        if ($request->getCookie('cache_bypass') == '1') {
+            $this->setNoCacheHeaders();
+            return;
+        }
         
         // If user is logged in, ensure no caching
         if ($visitor->user_id) {
@@ -37,7 +44,6 @@ class CacheOptimizer
         }
         
         // For guests, set cache headers based on content
-        $request = $this->app->request();
         $routePath = $request->getRoutePath();
         
         // Determine the content type and set appropriate headers
@@ -97,7 +103,11 @@ class CacheOptimizer
         $this->response->header('Pragma', 'no-cache');
         $this->response->header('Expires', '0');
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Status', 'logged-in-user');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Status', 'logged-in-user');
+        }
     }
     
     /**
@@ -175,8 +185,12 @@ class CacheOptimizer
             // Set cache headers with separate edge cache
             $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
             $this->response->header('Vary', 'Cookie');
-            $this->response->header('X-Cache-Age', round($age / 86400, 1) . ' days');
-            $this->response->header('X-Cache-Node', $nodeId);
+            
+            // Only show debug headers in verbose mode
+            if ($this->options->wfSessionValidator_verboseOutput) {
+                $this->response->header('X-Cache-Age', round($age / 86400, 1) . ' days');
+                $this->response->header('X-Cache-Node', $nodeId);
+            }
             
             // Add last modified header
             $this->response->header('Last-Modified', gmdate('D, d M Y H:i:s', $postDate) . ' GMT');
@@ -221,8 +235,12 @@ class CacheOptimizer
             
             $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
             $this->response->header('Vary', 'Cookie');
-            $this->response->header('X-Cache-Type', 'forum-listing');
-            $this->response->header('X-Cache-Node', $nodeId);
+            
+            // Only show debug headers in verbose mode
+            if ($this->options->wfSessionValidator_verboseOutput) {
+                $this->response->header('X-Cache-Type', 'forum-listing');
+                $this->response->header('X-Cache-Node', $nodeId);
+            }
             
         } catch (\Exception $e) {
             \XF::logError('Cache Optimizer Error: ' . $e->getMessage());
@@ -240,7 +258,11 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 2);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'homepage');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'homepage');
+        }
     }
     
     /**
@@ -254,8 +276,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 5);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'whats-new');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'whats-new');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -271,8 +297,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 5);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'find-new');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'find-new');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -287,8 +317,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 3);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie, Accept-Encoding');
-        $this->response->header('X-Cache-Type', 'search');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'search');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -303,8 +337,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 2);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'members');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'members');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -319,8 +357,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 7);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime, immutable");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'help');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'help');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -336,9 +378,13 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 7);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime, immutable");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'page');
-        $this->response->header('X-Page-ID', $pageId);
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'page');
+            $this->response->header('X-Page-ID', $pageId);
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -353,8 +399,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 2);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'media');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'media');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -369,8 +419,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 2);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'resources');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'resources');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
@@ -385,8 +439,12 @@ class CacheOptimizer
         $staleTime = intval($cacheTime / 3);
         $this->response->header('Cache-Control', "public, max-age=$cacheTime, s-maxage=$edgeCache, stale-while-revalidate=$staleTime");
         $this->response->header('Vary', 'Cookie');
-        $this->response->header('X-Cache-Type', 'default');
-        $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        
+        // Only show debug headers in verbose mode
+        if ($this->options->wfSessionValidator_verboseOutput) {
+            $this->response->header('X-Cache-Type', 'default');
+            $this->response->header('X-Cache-Optimizer', 'WindowsForum/SessionValidator');
+        }
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$edgeCache");
     }
     
