@@ -62,6 +62,40 @@ class Listener
     }
     
     /**
+     * Listen to the controller_post_dispatch event to disable XenForo's page caching for logged-in users
+     */
+    public static function controllerPostDispatch(\XF\Mvc\Controller $controller, $action, \XF\Mvc\ParameterBag $params, \XF\Mvc\Reply\AbstractReply &$reply)
+    {
+        // Only run on public-facing requests
+        $app = \XF::app();
+        if (!($app instanceof \XF\Pub\App))
+        {
+            return;
+        }
+        
+        // Check if cache optimization is enabled
+        $options = $app->options();
+        if (empty($options->wfCacheOptimizer_enabled))
+        {
+            return;
+        }
+        
+        // Check if user is authenticated
+        $visitor = \XF::visitor();
+        $request = $app->request();
+        $cookiePrefix = $app->config('cookie')['prefix'] ?? 'xf_';
+        
+        $hasAuthCookies = $request->getCookie($cookiePrefix . 'session') || 
+                          $request->getCookie($cookiePrefix . 'user');
+        
+        // If user is logged in or has auth cookies, disable XenForo's page caching
+        if ($visitor->user_id > 0 || $hasAuthCookies)
+        {
+            \XF\Pub\App::$allowPageCache = false;
+        }
+    }
+    
+    /**
      * Listen to the app_pub_complete event to set cache headers based on content age
      */
     public static function appPubComplete(\XF\App $app, \XF\Http\Response $response)
