@@ -82,14 +82,9 @@ class Listener
         
         // Check if user is authenticated
         $visitor = \XF::visitor();
-        $request = $app->request();
-        $cookiePrefix = $app->config('cookie')['prefix'] ?? 'xf_';
         
-        $hasAuthCookies = $request->getCookie($cookiePrefix . 'session') || 
-                          $request->getCookie($cookiePrefix . 'user');
-        
-        // If user is logged in or has auth cookies, disable XenForo's page caching
-        if ($visitor->user_id > 0 || $hasAuthCookies)
+        // If user is logged in, disable XenForo's page caching
+        if ($visitor->user_id > 0)
         {
             \XF\Pub\App::$allowPageCache = false;
         }

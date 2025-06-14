@@ -41,8 +41,8 @@ class CacheOptimizer
             return;
         }
         
-        // Check if user is authenticated (either by visitor object or cookies)
-        if ($this->isUserAuthenticated($visitor)) {
+        // Check if user is authenticated
+        if ($visitor->user_id) {
             $this->setNoCacheForUser();
             return;
         }
@@ -52,45 +52,18 @@ class CacheOptimizer
         if (empty($routePath) || $routePath === '/') {
             // Homepage
             $this->setHomepageCacheHeaders();
-        } elseif (preg_match('#^threads/.*\.(\d+)/#', $routePath, $matches)) {
-            // Thread pages
+        } elseif (preg_match('#^threads/[^/]+\.(\d+)(?:/|$)#', $routePath, $matches)) {
+            // Thread pages - matches: threads/thread-title.123/ or threads/thread-title.123
             $threadId = $matches[1];
             $this->setThreadCacheHeaders($threadId);
-        } elseif (preg_match('#^forums/.*\.(\d+)/#', $routePath, $matches)) {
-            // Forum listings
+        } elseif (preg_match('#^forums/[^/]+\.(\d+)(?:/|$)#', $routePath, $matches)) {
+            // Forum listings - matches: forums/forum-name.45/ or forums/forum-name.45
             $forumId = $matches[1];
             $this->setForumCacheHeaders($forumId);
         } else {
             // Default for other pages
             $this->setDefaultCacheHeaders();
         }
-    }
-    
-    /**
-     * Check if a user is authenticated via visitor object or cookies
-     */
-    protected function isUserAuthenticated($visitor)
-    {
-        // First check visitor object
-        if ($visitor->user_id) {
-            return true;
-        }
-        
-        // Also check for authentication cookies
-        $request = $this->app->request();
-        $cookiePrefix = $this->app->config('cookie')['prefix'] ?? 'xf_';
-        
-        // Check for session cookie
-        if ($request->getCookie($cookiePrefix . 'session')) {
-            return true;
-        }
-        
-        // Check for user (remember me) cookie
-        if ($request->getCookie($cookiePrefix . 'user')) {
-            return true;
-        }
-        
-        return false;
     }
     
     /**
@@ -114,121 +87,44 @@ class CacheOptimizer
     }
     
     /**
-     * Set cache headers for thread pages based on thread age
+     * Set cache headers for thread pages (no SQL queries)
      */
     protected function setThreadCacheHeaders($threadId)
     {
-        try {
-            $thread = $this->app->em()->find('XF:Thread', $threadId);
-            if (!$thread) {
-                $this->setDefaultCacheHeaders();
-                return;
-            }
-            
-            $postDate = $thread->post_date;
-            $nodeId = $thread->node_id;
-            $currentTime = time();
-            $age = $currentTime - $postDate;
-            
-            // Get extended cache nodes from options
-            $extendedCacheNodes = $this->getExtendedCacheNodes();
-            $isExtendedCache = in_array($nodeId, $extendedCacheNodes);
-            
-            // Get age thresholds from options
-            $threshold1Day = $this->options->wfCacheOptimizer_ageThreshold1Day ?? 86400;
-            $threshold7Days = $this->options->wfCacheOptimizer_ageThreshold7Days ?? 604800;
-            $threshold30Days = $this->options->wfCacheOptimizer_ageThreshold30Days ?? 2592000;
-            $ancientThreshold = $this->options->wfCacheOptimizer_ancientThreshold ?? 315360000;
-            
-            // Calculate cache duration based on age and node type
-            if ($age > $ancientThreshold) { // Ancient content (e.g., 10+ years)
-                $cacheTime = $this->options->wfCacheOptimizer_ancientCache ?? 31536000; // 1 year
-                $edgeCache = $this->options->wfCacheOptimizer_ancientCacheEdgeCache ?? 31536000; // 1 year
-            } elseif ($age > $threshold30Days) { // Older than 30 days
-                if ($isExtendedCache) {
-                    $cacheTime = $this->options->wfCacheOptimizer_extendedThread30Days ?? 2592000; // 30 days
-                    $edgeCache = $this->options->wfCacheOptimizer_extendedThread30DaysEdgeCache ?? 7776000; // 90 days
-                } else {
-                    $cacheTime = $this->options->wfCacheOptimizer_thread30Days ?? 604800; // 7 days
-                    $edgeCache = $this->options->wfCacheOptimizer_thread30DaysEdgeCache ?? 2592000; // 30 days
-                }
-            } elseif ($age > $threshold7Days) { // 7-30 days old
-                if ($isExtendedCache) {
-                    $cacheTime = $this->options->wfCacheOptimizer_extendedThread7Days ?? 604800; // 7 days
-                    $edgeCache = $this->options->wfCacheOptimizer_extendedThread7DaysEdgeCache ?? 1209600; // 14 days
-                } else {
-                    $cacheTime = $this->options->wfCacheOptimizer_thread7Days ?? 86400; // 1 day
-                    $edgeCache = $this->options->wfCacheOptimizer_thread7DaysEdgeCache ?? 259200; // 3 days
-                }
-            } elseif ($age > $threshold1Day) { // 1-7 days old
-                if ($isExtendedCache) {
-                    $cacheTime = $this->options->wfCacheOptimizer_extendedThread1Day ?? 86400; // 1 day
-                    $edgeCache = $this->options->wfCacheOptimizer_extendedThread1DayEdgeCache ?? 172800; // 2 days
-                } else {
-                    $cacheTime = $this->options->wfCacheOptimizer_thread1Day ?? 7200; // 2 hours
-                    $edgeCache = $this->options->wfCacheOptimizer_thread1DayEdgeCache ?? 21600; // 6 hours
-                }
-            } else { // Less than 24 hours old
-                if ($isExtendedCache) {
-                    $cacheTime = $this->options->wfCacheOptimizer_extendedThreadFresh ?? 3600; // 1 hour
-                    $edgeCache = $this->options->wfCacheOptimizer_extendedThreadFreshEdgeCache ?? 7200; // 2 hours
-                } else {
-                    $cacheTime = $this->options->wfCacheOptimizer_threadFresh ?? 600; // 10 minutes
-                    $edgeCache = $this->options->wfCacheOptimizer_threadFreshEdgeCache ?? 1800; // 30 minutes
-                }
-            }
-            
-            // Set cache headers with separate edge cache
-            $this->setCacheControlHeaders($cacheTime, $edgeCache);
-            
-            // Add last modified header
-            $this->response->header('Last-Modified', gmdate('D, d M Y H:i:s', $postDate) . ' GMT');
-            
-            // Identify cache type for debugging
-            $this->response->header('X-Cache-Optimizer', $isExtendedCache ? 'thread-extended' : 'thread-standard');
-            
-        } catch (\Exception $e) {
-            \XF::logError('Cache Optimizer Error: ' . $e->getMessage());
-            $this->setDefaultCacheHeaders();
-        }
+        // Use a simplified cache strategy without SQL queries
+        // Default to medium cache times for all threads
+        $cacheTime = $this->options->wfCacheOptimizer_thread7Days ?? 86400; // 1 day
+        $edgeCache = $this->options->wfCacheOptimizer_thread7DaysEdgeCache ?? 259200; // 3 days
+        
+        // Set cache headers
+        $this->setCacheControlHeaders($cacheTime, $edgeCache);
+        
+        // Identify cache type for debugging
+        $this->response->header('X-Cache-Optimizer', 'thread');
     }
     
     /**
-     * Set cache headers for forum listing pages
+     * Set cache headers for forum listing pages (no SQL queries)
      */
     protected function setForumCacheHeaders($forumId)
     {
-        try {
-            $forum = $this->app->em()->find('XF:Forum', $forumId);
-            if (!$forum) {
-                $this->setDefaultCacheHeaders();
-                return;
-            }
-            
-            $nodeId = $forum->node_id;
-            
-            // Get extended cache nodes from options
-            $extendedCacheNodes = $this->getExtendedCacheNodes();
-            $isExtendedCache = in_array($nodeId, $extendedCacheNodes);
-            
-            // Forum listings get different cache based on node type
-            if ($isExtendedCache) {
-                $cacheTime = $this->options->wfCacheOptimizer_windowsNews ?? 3600;
-                $edgeCache = $this->options->wfCacheOptimizer_windowsNewsEdgeCache ?? 7200;
-            } else {
-                $cacheTime = $this->options->wfCacheOptimizer_forums ?? 900;
-                $edgeCache = $this->options->wfCacheOptimizer_forumsEdgeCache ?? 1800;
-            }
-            
-            $this->setCacheControlHeaders($cacheTime, $edgeCache);
-            
-            // Identify cache type for debugging
-            $this->response->header('X-Cache-Optimizer', $isExtendedCache ? 'forum-extended' : 'forum-standard');
-            
-        } catch (\Exception $e) {
-            \XF::logError('Cache Optimizer Error: ' . $e->getMessage());
-            $this->setDefaultCacheHeaders();
+        // Check if this is Windows News forum (ID 4) without SQL
+        $extendedCacheNodes = $this->getExtendedCacheNodes();
+        $isExtendedCache = in_array($forumId, $extendedCacheNodes);
+        
+        // Forum listings get different cache based on forum ID
+        if ($isExtendedCache) {
+            $cacheTime = $this->options->wfCacheOptimizer_windowsNews ?? 3600;
+            $edgeCache = $this->options->wfCacheOptimizer_windowsNewsEdgeCache ?? 7200;
+        } else {
+            $cacheTime = $this->options->wfCacheOptimizer_forums ?? 900;
+            $edgeCache = $this->options->wfCacheOptimizer_forumsEdgeCache ?? 1800;
         }
+        
+        $this->setCacheControlHeaders($cacheTime, $edgeCache);
+        
+        // Identify cache type for debugging
+        $this->response->header('X-Cache-Optimizer', $isExtendedCache ? 'forum-extended' : 'forum');
     }
     
     /**
