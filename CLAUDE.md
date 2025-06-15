@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **XenForo 2.2+ addon** that provides two main features:
+This is a **XenForo 2.2+ addon** (version 1.3.4) that provides two main features:
 1. **Session Validator**: Validates user sessions server-side and provides verification headers for Cloudflare WAF rules
 2. **Cache Optimizer**: Sets intelligent cache headers based on content age with special handling for Windows News forum
+
+**Important**: This addon is designed to work within XenForo's framework at `/web/public_html/`. All commands must be run from the XenForo root directory, not from the addon directory.
 
 ## Essential Commands
 
@@ -32,6 +34,7 @@ php cmd.php xf-addon:build-release WindowsForum/SessionValidator
 ### Event-Driven Design
 The addon hooks into XenForo's app lifecycle events:
 - `app_setup`, `app_admin_setup`, `app_api_setup`: Early session validation
+- `controller_post_dispatch`: Disables XenForo page caching for logged-in users
 - `app_pub_complete`: Late-stage cache header optimization
 
 ### Key Components
@@ -147,3 +150,28 @@ Extended cache nodes:
 6. [ ] Check Windows News threads get extended cache
 7. [ ] Confirm headers only appear for Cloudflare requests
 8. [ ] Test error handling with invalid thread/forum IDs
+
+## Common Development Tasks
+
+### Modify Session Validation Logic
+Edit `Service/SessionValidator.php` to change how sessions are validated or which headers are set.
+
+### Add New Cache Rules
+Edit `Service/CacheOptimizer.php` to add new content types or modify cache durations.
+
+### Update Configuration Options
+1. Edit `_data/options.xml` to add/modify options
+2. Run `php cmd.php xf-addon:rebuild WindowsForum/SessionValidator` from XenForo root
+3. New options appear in Admin CP → Options
+
+### Debug Header Issues
+1. Enable debug mode in `/web/public_html/src/config.php`: `$config['debug'] = true;`
+2. Add logging in services: `\XF::logError('Debug: ' . $message);`
+3. Check XenForo error logs in Admin CP → Logs → Server error log
+
+## Cloudflare Integration Notes
+
+- Headers are only visible to Cloudflare when `wfSessionValidator_cloudflareOnly` is enabled
+- Use Cloudflare's WAF rules to create security policies based on these headers
+- The addon validates against Cloudflare's known IP ranges for security
+- See README.md for example Cloudflare WAF rules

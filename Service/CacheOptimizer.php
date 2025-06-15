@@ -87,20 +87,47 @@ class CacheOptimizer
     }
     
     /**
-     * Set cache headers for thread pages (no SQL queries)
+     * Set cache headers for thread pages based on Last-Modified header
      */
     protected function setThreadCacheHeaders($threadId)
     {
-        // Use a simplified cache strategy without SQL queries
-        // Default to medium cache times for all threads
-        $cacheTime = $this->options->wfCacheOptimizer_thread7Days ?? 86400; // 1 day
-        $edgeCache = $this->options->wfCacheOptimizer_thread7DaysEdgeCache ?? 259200; // 3 days
+        // Try to determine age from Last-Modified header if XenForo sends it
+        $age = $this->getContentAge();
+        
+        // Get age thresholds from options
+        $threshold1Day = $this->options->wfCacheOptimizer_ageThreshold1Day ?? 86400;
+        $threshold7Days = $this->options->wfCacheOptimizer_ageThreshold7Days ?? 604800;
+        $threshold30Days = $this->options->wfCacheOptimizer_ageThreshold30Days ?? 2592000;
+        
+        // Determine cache times based on age
+        if ($age === null) {
+            // No Last-Modified header, use default
+            $cacheTime = $this->options->wfCacheOptimizer_thread7Days ?? 86400;
+            $edgeCache = $this->options->wfCacheOptimizer_thread7DaysEdgeCache ?? 259200;
+        } elseif ($age < $threshold1Day) {
+            // Fresh content (< 24 hours)
+            $cacheTime = $this->options->wfCacheOptimizer_threadFresh ?? 600;
+            $edgeCache = $this->options->wfCacheOptimizer_threadFreshEdgeCache ?? 1800;
+        } elseif ($age < $threshold7Days) {
+            // Recent content (1-7 days)
+            $cacheTime = $this->options->wfCacheOptimizer_thread1Day ?? 7200;
+            $edgeCache = $this->options->wfCacheOptimizer_thread1DayEdgeCache ?? 21600;
+        } elseif ($age < $threshold30Days) {
+            // Older content (7-30 days)
+            $cacheTime = $this->options->wfCacheOptimizer_thread7Days ?? 86400;
+            $edgeCache = $this->options->wfCacheOptimizer_thread7DaysEdgeCache ?? 259200;
+        } else {
+            // Archived content (30+ days)
+            $cacheTime = $this->options->wfCacheOptimizer_thread30Days ?? 604800;
+            $edgeCache = $this->options->wfCacheOptimizer_thread30DaysEdgeCache ?? 2592000;
+        }
         
         // Set cache headers
         $this->setCacheControlHeaders($cacheTime, $edgeCache);
         
         // Identify cache type for debugging
-        $this->response->header('X-Cache-Optimizer', 'thread');
+        $ageLabel = $age === null ? 'unknown' : round($age / 86400, 1) . 'd';
+        $this->response->header('X-Cache-Optimizer', 'thread-' . $ageLabel);
     }
     
     /**
@@ -196,6 +223,32 @@ class CacheOptimizer
         $nodes = array_map('intval', $nodes);
         $nodes = array_filter($nodes); // Remove any zero values
         return $nodes;
+    }
+    
+    /**
+     * Get content age from Last-Modified header if available
+     * @return int|null Age in seconds, or null if not available
+     */
+    protected function getContentAge()
+    {
+        // Check if XenForo has set a Last-Modified header
+        $headers = $this->response->headers();
+        if (isset($headers['Last-Modified'])) {
+            $lastModified = strtotime($headers['Last-Modified']);
+            if ($lastModified !== false) {
+                return time() - $lastModified;
+            }
+        }
+        
+        // Alternative: Check for X-Last-Modified or other custom headers
+        if (isset($headers['X-Last-Modified'])) {
+            $lastModified = strtotime($headers['X-Last-Modified']);
+            if ($lastModified !== false) {
+                return time() - $lastModified;
+            }
+        }
+        
+        return null;
     }
     
     /**

@@ -144,4 +144,13 @@
   
   <phrase title="option.wfCacheOptimizer_ancientCacheEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Ancient content edge cache duration (seconds)]]></phrase>
   <phrase title="option_explain.wfCacheOptimizer_ancientCacheEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for ancient content. Default: 31536000 (1 year)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_default" version_id="1030300" version_string="1.3.3"><![CDATA[Default page cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_default" version_id="1030300" version_string="1.3.3"><![CDATA[Browser cache duration for unmatched pages. Default: 900 (15 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_defaultEdgeCache" version_id="1030300" version_string="1.3.3"><![CDATA[Default page edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_defaultEdgeCache" version_id="1030300" version_string="1.3.3"><![CDATA[CDN/proxy cache (s-maxage) for unmatched pages. Default: 1800 (30 minutes)]]></phrase>
+  
+  <phrase title="option.wfCacheOptimizer_homepageEdgeCache" version_id="1030300" version_string="1.3.3"><![CDATA[Homepage edge cache duration (seconds)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_homepageEdgeCache" version_id="1030300" version_string="1.3.3"><![CDATA[CDN/proxy cache (s-maxage) for homepage. Default: 600 (10 minutes)]]></phrase>
 </phrases>

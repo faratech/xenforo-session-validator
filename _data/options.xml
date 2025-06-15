@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <options>
+  <!-- Session Validator Settings -->
   <option option_id="wfSessionValidator_enabled" edit_format="onoff" data_type="boolean" advanced="0">
     <default_value>1</default_value>
     <relation group_id="wfSessionValidator" display_order="10"/>
@@ -17,5 +18,111 @@
   <option option_id="wfCacheOptimizer_enabled" edit_format="onoff" data_type="boolean" advanced="0">
     <default_value>1</default_value>
     <relation group_id="wfSessionValidator" display_order="100"/>
+  </option>
+  
+  <!-- Extended Cache Nodes (comma-separated forum IDs) -->
+  <option option_id="wfCacheOptimizer_extendedCacheNodes" edit_format="textbox" data_type="string" advanced="0">
+    <default_value>4</default_value>
+    <relation group_id="wfSessionValidator" display_order="110"/>
+  </option>
+  
+  <!-- Basic Page Cache Settings -->
+  <option option_id="wfCacheOptimizer_homepage" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>600</default_value>
+    <relation group_id="wfSessionValidator" display_order="120"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_homepageEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>600</default_value>
+    <relation group_id="wfSessionValidator" display_order="125"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_default" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>900</default_value>
+    <relation group_id="wfSessionValidator" display_order="130"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_defaultEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>1800</default_value>
+    <relation group_id="wfSessionValidator" display_order="135"/>
+  </option>
+  
+  <!-- Forum Cache Settings -->
+  <option option_id="wfCacheOptimizer_forums" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>900</default_value>
+    <relation group_id="wfSessionValidator" display_order="140"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_forumsEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>1800</default_value>
+    <relation group_id="wfSessionValidator" display_order="145"/>
+  </option>
+  
+  <!-- Extended Cache Forums (like Windows News) -->
+  <option option_id="wfCacheOptimizer_windowsNews" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>3600</default_value>
+    <relation group_id="wfSessionValidator" display_order="150"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_windowsNewsEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>7200</default_value>
+    <relation group_id="wfSessionValidator" display_order="155"/>
+  </option>
+  
+  <!-- Age Thresholds -->
+  <option option_id="wfCacheOptimizer_ageThreshold1Day" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>86400</default_value>
+    <relation group_id="wfSessionValidator" display_order="160"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_ageThreshold7Days" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>604800</default_value>
+    <relation group_id="wfSessionValidator" display_order="165"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_ageThreshold30Days" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>2592000</default_value>
+    <relation group_id="wfSessionValidator" display_order="170"/>
+  </option>
+  
+  <!-- Thread Cache Settings (age-based using Last-Modified) -->
+  <option option_id="wfCacheOptimizer_threadFresh" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>600</default_value>
+    <relation group_id="wfSessionValidator" display_order="180"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_threadFreshEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>1800</default_value>
+    <relation group_id="wfSessionValidator" display_order="185"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_thread1Day" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>7200</default_value>
+    <relation group_id="wfSessionValidator" display_order="190"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_thread1DayEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>21600</default_value>
+    <relation group_id="wfSessionValidator" display_order="195"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_thread7Days" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>86400</default_value>
+    <relation group_id="wfSessionValidator" display_order="200"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_thread7DaysEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>259200</default_value>
+    <relation group_id="wfSessionValidator" display_order="205"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_thread30Days" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>604800</default_value>
+    <relation group_id="wfSessionValidator" display_order="210"/>
+  </option>
+  
+  <option option_id="wfCacheOptimizer_thread30DaysEdgeCache" edit_format="spinbox" data_type="positive_integer" advanced="0">
+    <default_value>2592000</default_value>
+    <relation group_id="wfSessionValidator" display_order="215"/>
   </option>
 </options>
