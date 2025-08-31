@@ -27,6 +27,14 @@ class Listener
         $validator->validateAndSetHeaders();
     }
 
+    
+
+    public static function securityLoginSuccessful(\XF\Entity\User $user, $ip, &$redirect)
+    {
+        // Clear the page cache to ensure the user sees the logged-in view
+        \XF::app()->cache('page')->clear();
+    }
+
     /**
      * Listen to the app_admin_setup event to validate admin sessions early in the request cycle
      */

@@ -5,4 +5,6 @@
   <listener event_id="app_setup" execute_order="10" callback_class="WindowsForum\SessionValidator\Listener" callback_method="appSetup" active="1" description="Validates XenForo sessions and sets Cloudflare verification headers"/>
   <listener event_id="controller_post_dispatch" execute_order="1" callback_class="WindowsForum\SessionValidator\Listener" callback_method="controllerPostDispatch" active="1" description="Disable XenForo page caching for authenticated users"/>
   <listener event_id="app_pub_complete" execute_order="9999" callback_class="WindowsForum\SessionValidator\Listener" callback_method="appPubComplete" active="1" description="Sets cache headers based on thread age with special handling for Windows News"/>
+  
+  <listener event_id="security_login_successful" execute_order="10" callback_class="WindowsForum\SessionValidator\Listener" callback_method="securityLoginSuccessful" active="1" description="Clear page cache on successful login"/>
 </code_event_listeners>
