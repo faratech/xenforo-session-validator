@@ -144,7 +144,10 @@ class SessionValidator
             header('XF-Verified-User: true');
             header('XF-Verified-Session: true');
             header('XF-Session-Validated: ' . date('c'));
-            
+
+            // Add CF-Cache-Status bypass hint for CloudFlare Workers
+            header('CF-Cache-Status: BYPASS');
+
             // Check if verbose output is enabled
             $verboseOutput = \XF::options()->wfSessionValidator_verboseOutput ?? false;
             if ($verboseOutput)
@@ -154,6 +157,24 @@ class SessionValidator
                 header('XF-Is-Staff: ' . ($userData['is_staff'] ? 'true' : 'false'));
                 header('XF-Is-Admin: ' . ($userData['is_admin'] ? 'true' : 'false'));
                 header('XF-Is-Moderator: ' . ($userData['is_moderator'] ? 'true' : 'false'));
+            }
+
+            // Add user group for advanced CloudFlare rules
+            if ($userData['is_admin'])
+            {
+                header('XF-User-Group: admin');
+            }
+            elseif ($userData['is_moderator'])
+            {
+                header('XF-User-Group: moderator');
+            }
+            elseif ($userData['is_staff'])
+            {
+                header('XF-User-Group: staff');
+            }
+            else
+            {
+                header('XF-User-Group: member');
             }
         }
     }

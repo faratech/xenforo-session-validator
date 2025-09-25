@@ -31,8 +31,31 @@ class Listener
 
     public static function securityLoginSuccessful(\XF\Entity\User $user, $ip, &$redirect)
     {
-        // Clear the page cache to ensure the user sees the logged-in view
-        \XF::app()->cache('page')->clear();
+        // Clear Redis page cache more efficiently
+        $cache = \XF::app()->cache('page');
+        if ($cache)
+        {
+            // Clear user-specific cache entries instead of entire cache
+            $keyPrefix = 'page_' . $user->user_id . '_';
+
+            // If Redis, use pattern deletion for better performance
+            $cacheDriver = $cache->getDriver();
+            if (method_exists($cacheDriver, 'deletePattern'))
+            {
+                $cacheDriver->deletePattern($keyPrefix . '*');
+            }
+            else
+            {
+                // Fallback to clearing all page cache
+                $cache->clear();
+            }
+        }
+
+        // Also clear LiteSpeed cache for this user via header
+        if (!headers_sent())
+        {
+            header('X-LiteSpeed-Purge: user_' . $user->user_id);
+        }
     }
 
     /**
@@ -80,21 +103,50 @@ class Listener
         {
             return;
         }
-        
+
         // Check if cache optimization is enabled
         $options = $app->options();
         if (empty($options->wfCacheOptimizer_enabled))
         {
             return;
         }
-        
+
         // Check if user is authenticated
         $visitor = \XF::visitor();
-        
+
         // If user is logged in, disable XenForo's page caching
         if ($visitor->user_id > 0)
         {
             \XF\Pub\App::$allowPageCache = false;
+
+            // Also set a header for LiteSpeed to skip caching for this user
+            if (!headers_sent())
+            {
+                header('X-LiteSpeed-Cache-Control: no-cache');
+            }
+        }
+        else
+        {
+            // For guests, allow page caching with proper tags
+            if ($reply instanceof \XF\Mvc\Reply\View)
+            {
+                // Set cache tags based on content type for efficient purging
+                $routePath = $app->request()->getRoutePath();
+                if (preg_match('#^threads/[^/]+\.(\d+)#', $routePath, $matches))
+                {
+                    if (!headers_sent())
+                    {
+                        header('X-LiteSpeed-Tag: thread_' . $matches[1]);
+                    }
+                }
+                elseif (preg_match('#^forums/[^/]+\.(\d+)#', $routePath, $matches))
+                {
+                    if (!headers_sent())
+                    {
+                        header('X-LiteSpeed-Tag: forum_' . $matches[1]);
+                    }
+                }
+            }
         }
     }
     
