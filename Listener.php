@@ -27,37 +27,6 @@ class Listener
         $validator->validateAndSetHeaders();
     }
 
-    
-
-    public static function securityLoginSuccessful(\XF\Entity\User $user, $ip, &$redirect)
-    {
-        // Clear Redis page cache more efficiently
-        $cache = \XF::app()->cache('page');
-        if ($cache)
-        {
-            // Clear user-specific cache entries instead of entire cache
-            $keyPrefix = 'page_' . $user->user_id . '_';
-
-            // If Redis, use pattern deletion for better performance
-            $cacheDriver = $cache->getDriver();
-            if (method_exists($cacheDriver, 'deletePattern'))
-            {
-                $cacheDriver->deletePattern($keyPrefix . '*');
-            }
-            else
-            {
-                // Fallback to clearing all page cache
-                $cache->clear();
-            }
-        }
-
-        // Also clear LiteSpeed cache for this user via header
-        if (!headers_sent())
-        {
-            header('X-LiteSpeed-Purge: user_' . $user->user_id);
-        }
-    }
-
     /**
      * Listen to the app_admin_setup event to validate admin sessions early in the request cycle
      */

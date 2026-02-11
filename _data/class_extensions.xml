@@ -1,2 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<class_extensions/>
+<class_extensions>
+	<extension from_class="XF\Pub\Controller\MiscController" to_class="WindowsForum\SessionValidator\XF\Pub\Controller\MiscController" active="1" execute_order="10" />
+	<extension from_class="XF\Pub\Controller\LoginController" to_class="WindowsForum\SessionValidator\XF\Pub\Controller\LoginController" active="1" execute_order="10" />
+</class_extensions>

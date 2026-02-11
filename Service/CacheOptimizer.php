@@ -27,26 +27,32 @@ class CacheOptimizer
         if (headers_sent()) {
             return;
         }
-        
+
         $visitor = \XF::visitor();
         $request = $this->app->request();
         $routePath = $request->getRoutePath();
-        
+
         // Clear any existing cache headers
         $this->clearCacheHeaders();
-        
+
         // Always set no-cache for authentication-related pages
         if ($this->isAuthenticationRoute($routePath)) {
             $this->setNoCacheForAuthPages();
             return;
         }
-        
+
         // Check if user is authenticated
         if ($visitor->user_id) {
             $this->setNoCacheForUser();
             return;
         }
-        
+
+        // Detect if guest has a style override cookie.
+        // LiteSpeed handles variation caching via .htaccess cache-vary directive
+        // (separate cache entries per xf_style_id/xf_style_variation/xf_language_id).
+        // Cloudflare cannot vary by cookie, so we bypass CF cache only.
+        $hasStyleOverride = $request->getCookie('style_id') || $request->getCookie('style_variation');
+
         // For guests, set cache headers based on content
         // Determine the content type and set appropriate headers
         if (empty($routePath) || $routePath === '/') {
@@ -63,6 +69,12 @@ class CacheOptimizer
         } else {
             // Default for other pages
             $this->setDefaultCacheHeaders();
+        }
+
+        // Override Cloudflare caching for style override guests.
+        // LiteSpeed and browser caching remain active (correct variation served).
+        if ($hasStyleOverride) {
+            $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store');
         }
     }
     
@@ -89,14 +101,17 @@ class CacheOptimizer
         // Identify that these headers came from us
         $this->response->header('X-Cache-Optimizer', 'no-cache-user');
     }
-    
+
+
     /**
      * Set cache headers for thread pages based on thread's actual age
      */
     protected function setThreadCacheHeaders($threadId)
     {
-        // Try to get thread's actual age from entity data
-        $age = $this->getThreadAge($threadId);
+        // Single DB query to get both age and node ID
+        $thread = $this->getThread($threadId);
+        $age = ($thread && $thread->last_post_date) ? (time() - $thread->last_post_date) : null;
+        $nodeId = $thread ? $thread->node_id : null;
 
         // Get age thresholds from options
         $threshold1Day = $this->options->wfCacheOptimizer_ageThreshold1Day ?? 86400;
@@ -105,7 +120,6 @@ class CacheOptimizer
         $ancientThreshold = $this->options->wfCacheOptimizer_ancientThreshold ?? 315360000; // 10 years
 
         // Check if this thread's forum gets extended cache times
-        $nodeId = $this->getThreadNodeId($threadId);
         $extendedCacheNodes = $this->getExtendedCacheNodes();
         $isExtendedCache = $nodeId && in_array($nodeId, $extendedCacheNodes);
 
@@ -149,8 +163,8 @@ class CacheOptimizer
         // Set cache headers
         $this->setCacheControlHeaders($cacheTime, $edgeCache);
 
-        // Generate and set ETag for better cache validation
-        $this->setETagHeader('thread', $threadId, $age);
+        // ETag disabled — redundant with TTL-based edge caching and .htaccess FileETag Off
+        // $this->setETagHeader('thread', $threadId, $age);
 
         // Identify cache type for debugging
         $ageLabel = $age === null ? 'unknown' : round($age / 86400, 1) . 'd';
@@ -177,8 +191,8 @@ class CacheOptimizer
 
         $this->setCacheControlHeaders($cacheTime, $edgeCache);
 
-        // Generate and set ETag for better cache validation
-        $this->setETagHeader('forum', $forumId);
+        // ETag disabled — redundant with TTL-based edge caching and .htaccess FileETag Off
+        // $this->setETagHeader('forum', $forumId);
 
         // Identify cache type for debugging
         $this->response->header('X-Cache-Optimizer', $isExtendedCache ? 'forum-extended' : 'forum');
@@ -219,23 +233,11 @@ class CacheOptimizer
         $staleTime = min($maxAge * 2, 86400); // Allow stale content for up to 2x cache time or 24h max
         $this->response->header('Cache-Control', "public, max-age=$maxAge, s-maxage=$sMaxAge, stale-while-revalidate=$staleTime");
 
-        // Get cookie configuration
-        $cookiePrefix = $this->app->config('cookie')['prefix'] ?? 'xf_';
-
-        // Build vary header with specific cookies for better cache efficiency
-        // We vary on session and user cookies to ensure proper cache separation
-        $varyHeaders = ['Accept-Encoding'];
-        $varyCookies = [
-            $cookiePrefix . 'session',
-            $cookiePrefix . 'user',
-            $cookiePrefix . 'admin',
-            $cookiePrefix . 'install'
-        ];
-
-        // Add cookie vary directive
-        $varyHeaders[] = 'Cookie';
-
-        $this->response->header('Vary', implode(', ', $varyHeaders));
+        // Only vary on Accept-Encoding for guest pages.
+        // Logged-in users are already bypassed by Cloudflare's cookie rule
+        // and setNoCacheForUser(). Vary: Cookie destroys cache hit rates
+        // because even guests have unique analytics/consent cookies.
+        $this->response->header('Vary', 'Accept-Encoding');
 
         // Set Cloudflare-specific cache control
         $this->response->header('Cloudflare-CDN-Cache-Control', "max-age=$sMaxAge, stale-while-revalidate=$staleTime");
@@ -335,75 +337,44 @@ class CacheOptimizer
     /**
      * Generate and set ETag header for cache validation
      */
+    // ETag disabled — redundant with TTL-based edge caching and .htaccess FileETag Off.
+    // The hourly age rounding also caused unnecessary cache invalidation.
+    /*
     protected function setETagHeader($type, $id, $age = null)
     {
-        // Build ETag components
         $components = [
             $type,
             $id,
-            $age !== null ? round($age / 3600) : 'na', // Age in hours
-            \XF::$versionId // XenForo version for cache busting on upgrades
+            $age !== null ? round($age / 3600) : 'na',
+            \XF::$versionId
         ];
 
-        // Generate ETag
         $etag = '"' . md5(implode('-', $components)) . '"';
         $this->response->header('ETag', $etag);
 
-        // Check if client sent If-None-Match
         $request = $this->app->request();
         $ifNoneMatch = $request->getServer('HTTP_IF_NONE_MATCH');
 
         if ($ifNoneMatch === $etag) {
-            // Content hasn't changed, send 304
             $this->response->httpCode(304);
             $this->response->header('X-Cache-Status', 'HIT-ETAG');
         }
     }
+    */
 
     /**
-     * Get the actual age of a thread based on last post time
+     * Fetch thread entity (single query for age + node ID)
      * @param int $threadId
-     * @return int|null Age in seconds, or null if not found
+     * @return \XF\Entity\Thread|null
      */
-    protected function getThreadAge($threadId)
+    protected function getThread($threadId)
     {
         try {
-            // Try to get thread from finder to avoid direct SQL
-            $finder = \XF::finder('XF:Thread');
-            $thread = $finder->where('thread_id', $threadId)->fetchOne();
-
-            if ($thread && $thread->last_post_date) {
-                return time() - $thread->last_post_date;
-            }
+            return \XF::finder('XF:Thread')->where('thread_id', $threadId)->fetchOne();
         } catch (\Exception $e) {
-            // If entity system fails, fall back to null
-            \XF::logError('CacheOptimizer: Failed to get thread age: ' . $e->getMessage());
+            \XF::logError('CacheOptimizer: Failed to get thread: ' . $e->getMessage());
+            return null;
         }
-
-        return null;
-    }
-
-    /**
-     * Get the node ID (forum ID) for a thread
-     * @param int $threadId
-     * @return int|null Node ID, or null if not found
-     */
-    protected function getThreadNodeId($threadId)
-    {
-        try {
-            // Try to get thread from finder
-            $finder = \XF::finder('XF:Thread');
-            $thread = $finder->where('thread_id', $threadId)->fetchOne();
-
-            if ($thread && $thread->node_id) {
-                return $thread->node_id;
-            }
-        } catch (\Exception $e) {
-            // If entity system fails, fall back to null
-            \XF::logError('CacheOptimizer: Failed to get thread node: ' . $e->getMessage());
-        }
-
-        return null;
     }
     
     /**
