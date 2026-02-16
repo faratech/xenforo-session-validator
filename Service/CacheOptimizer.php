@@ -409,7 +409,9 @@ class CacheOptimizer
             'two-step',
             'account/two-step',
             'account/security',
-            'account/connected-accounts'
+            'account/connected-accounts',
+            'misc/accept-terms',
+            'misc/contact'
         ];
 
         foreach ($authRoutes as $route) {

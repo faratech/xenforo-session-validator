@@ -1,5 +1,4 @@
 {
-    "src/addons/WindowsForum/SessionValidator/.playwright-mcp/console-2026-02-12T03-40-20-859Z.log": "33d2f4ad9de28019ec78ae4a957fe0dfe4df1a27bd5cb33b209e67e98db849c4",
     "src/addons/WindowsForum/SessionValidator/addon.json": "af2f2160c1d9313b80ca1d9ea94aca8bf2890efa7acf4bdf93b672647758d6dc",
     "src/addons/WindowsForum/SessionValidator/CLAUDE.md": "2199ac48d9d2007598cc45d84f77bcc7254f528f4eb77bd856a4e96fde8fbf82",
     "src/addons/WindowsForum/SessionValidator/config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -9,7 +8,7 @@
     "src/addons/WindowsForum/SessionValidator/php_errors.log": "48845ff692e2ece17af28749c737122137dca1a0954462011876a2a29b19307c",
     "src/addons/WindowsForum/SessionValidator/README-ADDON.md": "eb6c9b5a6635328508c49507aff028322058e4236d27241cbd0a51d0bf749491",
     "src/addons/WindowsForum/SessionValidator/README.md": "2f1888b32d8218360790ea583395f364a9d5c085e4d37d3a8139351a91ab3960",
-    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "c663948da9c49110e8b279e74ff52e9db55c106667a0fb31fdc01695bd07f9be",
+    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "429441e8f584e98fc59f54bf0667d3aa1335e8a3b9a2cab36d57d07837d9d9fd",
     "src/addons/WindowsForum/SessionValidator/Service/SessionValidator.php": "fbaf337b03e712a1b725ef6ff914f6e4e74c30b864d4f6637bb880df92db9a7b",
     "src/addons/WindowsForum/SessionValidator/Setup.php": "5c273ed1d763650ffe50da163585cf0b9f748b9749be160b058d40bd34bce2e9",
     "src/addons/WindowsForum/SessionValidator/XF/Pub/Controller/LoginController.php": "4e0f7c95b20b76f77bfb1ce82354a11fa03ca501c3a01c0b97cb02074a7fcf50",
