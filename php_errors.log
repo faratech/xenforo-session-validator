@@ -1,0 +1,16 @@
+[16-Feb-2026 21:47:26 UTC] PHP Warning:  require(src/XF.php): Failed to open stream: No such file or directory in /web/regen_addon_hashes.php on line 3
+[16-Feb-2026 21:47:26 UTC] PHP Fatal error:  Uncaught Error: Failed opening required 'src/XF.php' (include_path='.:/usr/local/lib/php') in /web/regen_addon_hashes.php:3
+Stack trace:
+#0 {main}
+  thrown in /web/regen_addon_hashes.php on line 3
+[16-Feb-2026 21:47:31 UTC] PHP Warning:  require(src/XF.php): Failed to open stream: No such file or directory in /web/regen_addon_hashes.php on line 3
+[16-Feb-2026 21:47:31 UTC] PHP Fatal error:  Uncaught Error: Failed opening required 'src/XF.php' (include_path='.:/usr/local/lib/php') in /web/regen_addon_hashes.php:3
+Stack trace:
+#0 {main}
+  thrown in /web/regen_addon_hashes.php on line 3
+[16-Feb-2026 21:47:51 UTC] PHP Warning:  require(src/XF.php): Failed to open stream: No such file or directory in /web/regen_addon_hashes.php on line 3
+[16-Feb-2026 21:47:51 UTC] PHP Fatal error:  Uncaught Error: Failed opening required 'src/XF.php' (include_path='.:/usr/local/lib/php') in /web/regen_addon_hashes.php:3
+Stack trace:
+#0 Command line code(1): require()
+#1 {main}
+  thrown in /web/regen_addon_hashes.php on line 3

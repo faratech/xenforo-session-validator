@@ -4,174 +4,160 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **XenForo 2.2+ addon** (version 1.3.4) that provides two main features:
-1. **Session Validator**: Validates user sessions server-side and provides verification headers for Cloudflare WAF rules
-2. **Cache Optimizer**: Sets intelligent cache headers based on content age with special handling for Windows News forum
-
-**Important**: This addon is designed to work within XenForo's framework at `/web/public_html/`. All commands must be run from the XenForo root directory, not from the addon directory.
+**Session Validator & Cache Optimizer** — a XenForo 2.2+ addon for WindowsForum.com that:
+1. Validates user sessions and exposes verification headers for Cloudflare WAF rules
+2. Sets intelligent cache headers (Cache-Control, Cloudflare-CDN-Cache-Control, LiteSpeed) based on content type and age
+3. Sets accurate `Last-Modified` headers from DB timestamps (replacing LiteSpeed's bogus "current time" value)
+4. Handles cache-busting on login/logout/style-change to prevent stale cached pages
 
 ## Essential Commands
 
+All commands run from **`/web/public_html/`**, not the addon directory.
+
 ```bash
-# Install addon (from XenForo root)
-php cmd.php xf-addon:install WindowsForum/SessionValidator
+# Rebuild addon after changing _data/ XML files
+php cmd.php xf:addon-rebuild WindowsForum/SessionValidator
 
-# Rebuild addon data after changes
-php cmd.php xf-addon:rebuild WindowsForum/SessionValidator
+# Regenerate file hashes (can run from any directory)
+php /web/regen_addon_hashes.php WindowsForum/SessionValidator
 
-# Export development changes to XML files
-php cmd.php xf-addon:export WindowsForum/SessionValidator
+# Full deploy cycle after PHP changes
+php cmd.php xf:addon-rebuild WindowsForum/SessionValidator && \
+php /web/regen_addon_hashes.php WindowsForum/SessionValidator && \
+rm -rf /dev/shm/lscache/* && redis-cli -n 1 FLUSHDB && service lsws restart
 
-# Update version number
-php cmd.php xf-addon:bump-version WindowsForum/SessionValidator
-
-# Build release package
-php cmd.php xf-addon:build-release WindowsForum/SessionValidator
+# Verify headers on live site (bypass CDN cache with _nc param)
+curl -sI "https://windowsforum.com/threads/some-thread.123/?_nc=$(date +%s)" | grep -iE 'last-modified|x-cache-optimizer|x-litespeed-tag'
 ```
+
+**Important**: After editing PHP files, LiteSpeed must be restarted (`service lsws restart`) to flush opcache. The CLI `opcache_reset()` does NOT affect the web server's opcache. `opcache.revalidate_freq = 60` means changes take up to 60s without a restart.
 
 ## Architecture
 
-### Event-Driven Design
-The addon hooks into XenForo's app lifecycle events:
-- `app_setup`, `app_admin_setup`, `app_api_setup`: Early session validation
-- `controller_post_dispatch`: Disables XenForo page caching for logged-in users
-- `app_pub_complete`: Late-stage cache header optimization
+### Request Lifecycle (Event Listeners -> `Listener.php`)
 
-### Key Components
+The addon hooks into five XenForo events, registered in `_data/code_event_listeners.xml`:
 
-**SessionValidator** (`Service/SessionValidator.php`):
-- Validates sessions using XenForo's visitor system
-- Only exposes headers to Cloudflare requests (security feature)
-- Sets verification headers for WAF rules
+| Event | Method | Purpose |
+|---|---|---|
+| `app_setup` | `appSetup` | Session validation headers (public requests only) |
+| `app_admin_setup` | `appAdminSetup` | Session validation headers for admin panel |
+| `app_api_setup` | `appApiSetup` | Session validation headers for API |
+| `controller_post_dispatch` | `controllerPostDispatch` | Disables XenForo page cache for logged-in users |
+| `app_pub_complete` | `appPubComplete` | Sets cache headers on cacheable responses (200, 301, 308, 400, 403, 404, 410) |
 
-**CacheOptimizer** (`Service/CacheOptimizer.php`):
-- Sets cache headers based on content type and age
-- Special handling for Windows News forum (node ID 4)
-- Prevents caching for logged-in users
+Early events (`app_*_setup`) run session validation. Late events (`controller_post_dispatch`, `app_pub_complete`) handle caching. Each listener gates on its respective option (`wfSessionValidator_enabled` / `wfCacheOptimizer_enabled`).
 
-**Listener** (`Listener.php`):
-- Registers services at appropriate lifecycle events
-- Checks addon options before execution
+### Service Layer
 
-## How It Works
+**`Service/SessionValidator.php`** — Sets `XF-Verified-User`, `XF-Verified-Session`, `XF-User-Group` headers. Security: only sets headers for requests from Cloudflare IP ranges (validated via `\XF\Util\Ip::ipMatchesCidrRange()` against `\XF\Http\Request::$cloudFlareIps`).
 
-### Session Validation
-1. Checks if request is from Cloudflare (via CF-Connecting-IP header)
-2. Uses XenForo's visitor object (`\XF::visitor()`) for authentication
-3. Sets headers based on user status:
-   - `XF-Verified-User: true` - Authenticated user
-   - `XF-Verified-Session: true` - Valid session exists
-   - Additional headers in verbose mode (user ID, permissions)
+**`Service/CacheOptimizer.php`** — Core caching logic. Processing order in `setCacheHeaders()`:
+1. `clearCacheHeaders()` — removes all cache headers including `Last-Modified` (both XF `removeHeader()` and PHP `header_remove()`)
+2. Auth route check — no-cache for login/logout/register/etc.
+3. 301/308 redirects — aggressive caching, no DB query
+4. Logged-in user check — private no-cache
+5. Error codes (400/404/410) — short edge cache to absorb bot probes
+6. Route matching — content-specific handlers with DB queries for age-tiered TTLs and `Last-Modified`
 
-### Cache Optimization
-1. Analyzes route path to determine content type
-2. For threads: Calculates age and sets cache duration accordingly
-3. Windows News (node 4) gets extended cache times
-4. Logged-in users always get no-cache headers
+### Route Matching (CacheOptimizer)
 
-## Configuration Options
+Uses prefix-based dispatch: extracts the first path segment with `strpos`/`substr`, then a `switch` statement tests only the relevant regex(es) for that prefix. Thread pages (most common) test exactly 1 regex instead of up to 16. Within each prefix, sub-paths are tested before general paths. All regexes extract the numeric ID from `title.123` URL format.
 
-Defined in `_data/options.xml`:
+| Route Pattern | Handler | X-Cache-Optimizer | LiteSpeed Tag | Last-Modified Source |
+|---|---|---|---|---|
+| `threads/title.123/` | `setThreadCacheHeaders` | `thread-{age}d` | `T123` | `xf_thread.last_post_date` |
+| `forums/name.45/` | `setForumCacheHeaders` | `forum` / `forum-extended` | — | `xf_forum.last_post_date` |
+| `media/albums/title.123/` | `setAlbumCacheHeaders` | `album-{age}d` | `A123` | `GREATEST(create_date, last_update_date, last_comment_date)` |
+| `media/categories/name.5/` | `setMediaCategoryCacheHeaders` | `media-category` | — | none (no date columns) |
+| `media/title.123/` | `setMediaCacheHeaders` | `media-{age}d` | `M123` | `GREATEST(media_date, last_edit_date, last_comment_date)` |
+| `resources/categories/name.5/` | `setResourceCategoryCacheHeaders` | `resource-category` | — | `xf_rm_category.last_update` |
+| `resources/title.123/` | `setResourceCacheHeaders` | `resource-{age}d` | `R123` | `xf_rm_resource.last_update` |
+| `members/name.123/` | `setMemberCacheHeaders` | `member` | — | `GREATEST(last_activity, avatar_date, username_date, banner_date)` |
+| `members/` | `setListingCacheHeaders` | `member-index` | — | none |
+| `media/` | `setListingCacheHeaders` | `media-index` | — | none |
+| `resources/` | `setListingCacheHeaders` | `resource-index` | — | none |
+| `tags/slug/` | `setTagCacheHeaders` | `tag` | — | `xf_tag.last_use_date` |
+| `tags/` | `setListingCacheHeaders` | `tag-index` | — | none |
+| `whats-new/` | `setWhatsNewCacheHeaders` | `whats-new` | — | none |
+| `help/` | `setStaticPageCacheHeaders` | `help` | — | none |
+| `pages/name` | `setStaticPageCacheHeaders` | `page` | — | none |
+| *(everything else)* | `setDefaultCacheHeaders` | `default` | — | none |
 
-### Session Validator Options
-- `wfSessionValidator_enabled`: Enable session validation
-- `wfSessionValidator_cloudflareOnly`: Only set headers for Cloudflare requests
-- `wfSessionValidator_verboseOutput`: Include user details in headers
+### Cache TTL Tiers
 
-### Cache Optimizer Options
-- `wfCacheOptimizer_enabled`: Enable cache optimization
-- `wfCacheOptimizer_extendedCacheNodes`: Comma-separated node IDs for extended cache (default: "4")
-- `wfCacheOptimizer_homepage`: Homepage cache duration (default: 600)
-- `wfCacheOptimizer_homepageEdgeCache`: Homepage edge cache s-maxage (default: 600)
+**Age-tiered content** (threads, media, albums, resources) uses configurable thresholds:
+- Fresh (<24h): short TTL (default 600s browser / 1800s edge)
+- Recent (1-7d): medium TTL
+- Older (7-30d): longer TTL
+- Archived (30d+): aggressive TTL
+- Ancient (10y+): 1 year cache
 
-### Thread Age Thresholds
-- `wfCacheOptimizer_ageThreshold1Day`: Fresh content threshold (default: 86400)
-- `wfCacheOptimizer_ageThreshold7Days`: Recent content threshold (default: 604800)
-- `wfCacheOptimizer_ageThreshold30Days`: Older content threshold (default: 2592000)
-- `wfCacheOptimizer_ancientThreshold`: Ancient content threshold (default: 315360000 = 10 years)
+Threads in "extended cache nodes" (configurable, default: node 4 = Windows News) get longer TTLs at each tier. XFMG/XFRM content uses the non-extended thread TTLs.
 
-### Cache Durations
-Standard nodes:
-- `wfCacheOptimizer_threadFresh`: <24h old threads (default: 600)
-- `wfCacheOptimizer_thread1Day`: 1-7 days old (default: 7200)
-- `wfCacheOptimizer_thread7Days`: 7-30 days old (default: 86400)
-- `wfCacheOptimizer_thread30Days`: 30+ days old (default: 604800)
-- `wfCacheOptimizer_ancientCache`: Ancient content (default: 31536000 = 1 year)
+**Flat-TTL pages**: forums/listings use forum-level options, whats-new uses homepage options, help/pages use hardcoded 1d/7d.
 
-Extended cache nodes:
-- `wfCacheOptimizer_extendedThreadFresh`: <24h old (default: 3600)
-- `wfCacheOptimizer_extendedThread1Day`: 1-7 days (default: 86400)
-- `wfCacheOptimizer_extendedThread7Days`: 7-30 days (default: 604800)
-- `wfCacheOptimizer_extendedThread30Days`: 30+ days (default: 2592000)
+### Triple-Layer Cache Headers
 
-## Technical Implementation
+`setCacheControlHeaders()` sets three parallel cache directives:
+- `Cache-Control` — browser cache (`max-age`) + shared cache (`s-maxage`)
+- `Cloudflare-CDN-Cache-Control` — Cloudflare edge (overrides Cache-Control at edge)
+- `X-LiteSpeed-Cache-Control` — LiteSpeed origin proxy cache
 
-### XenForo Integration
-- Uses `\XF::visitor()` for user authentication
-- Leverages `\XF::app()->request()` for request data
-- Respects XenForo's response object for header management
+Plus `X-LiteSpeed-Vary: cookie=xf_style_variation, cookie=xf_style_id, cookie=xf_language_id` for per-theme/language cache entries, and `stale-while-revalidate` / `stale-if-error` directives.
 
-### Security Features
-- Cloudflare IP validation using `\XF\Http\Request::$cloudFlareIps`
-- Uses `\XF\Util\Ip::ipMatchesCidrRange()` for IP range checking
-- Headers only exposed to verified Cloudflare requests
+### DB Query Pattern
 
-### Cache Header Protection
-- **Force Headers Mode**: Aggressively overwrites headers from XenForo/other addons
-- **Early Intervention**: Uses `controller_post_dispatch` to disable XenForo's page caching
-- **Multiple Clear Methods**: Both XenForo's removeHeader() and PHP's header_remove()
-- **Cloudflare-CDN-Cache-Control**: Sets specific header for Cloudflare to respect
-- **X-Cache-Optimizer**: Identifies our headers for debugging
+All queries use raw `\XF::db()->fetchRow()` (no entity overhead), wrapped in try/catch with `\XF::logError()`. Each returns a single row by PK. Computed timestamps use `GREATEST()` with `COALESCE(col, 0)` for nullable date columns.
 
-### Cache Strategy
-- **Fresh content** (<24h): Short cache (10 min - 1 hour)
-- **Recent content** (1-7 days): Medium cache (2-24 hours)
-- **Older content** (7-30 days): Long cache (1-7 days)
-- **Archived content** (>30 days): Extended cache (7-30 days)
-- **Ancient content** (>10 years): Maximum cache (1 year)
-- **Extended cache nodes**: Get longer cache times at each tier
-- **Edge cache (s-maxage)**: Set separately for CDN/proxy caching
+### LiteSpeed Purge Tags
 
-## Development Notes
+All LiteSpeed purge tags are set by `CacheOptimizer::setCacheControlHeaders()` via the `app_pub_complete` event using `$this->response->header()`. Tags use a compact format: `T123` (thread), `M123` (media), `A123` (album), `R123` (resource), always paired with `public`.
 
-- No build process - XenForo compiles at runtime
-- Changes to XML files in `_data/` require rebuild command
-- Headers must be set before any output
-- Always check `headers_sent()` before setting headers
-- Use try-catch blocks to prevent disrupting requests
+### Class Extensions (`_data/class_extensions.xml`)
 
-## Testing Checklist
+Three XFCP controller extensions:
 
-1. [ ] Enable addon in Admin CP options
-2. [ ] Verify headers appear in browser dev tools (Network tab)
-3. [ ] Test with logged-in user (should see verification headers)
-4. [ ] Test with guest (should see session headers only)
-5. [ ] Verify cache headers on different content types
-6. [ ] Check Windows News threads get extended cache
-7. [ ] Confirm headers only appear for Cloudflare requests
-8. [ ] Test error handling with invalid thread/forum IDs
+**`XF/Pub/Controller/LoginController.php`** — After successful login or 2FA, appends `_sc={timestamp}` to redirect URL and sends `Clear-Site-Data: "cache"` header. Sets `xf_ls=1` cookie (httpOnly=false, 700s TTL) for JS detection on cached guest pages.
 
-## Common Development Tasks
+**`XF/Pub/Controller/LogoutController.php`** — Clears `xf_ls` cookie and sends `Clear-Site-Data: "cache"`.
 
-### Modify Session Validation Logic
-Edit `Service/SessionValidator.php` to change how sessions are validated or which headers are set.
+**`XF/Pub/Controller/MiscController.php`** — Extends `actionStyle()` and `actionStyleVariation()` to append `_sc` cache-bust param and re-set style cookies as non-httpOnly (XenForo defaults to httpOnly) so client JS and Cloudflare Worker can read them.
 
-### Add New Cache Rules
-Edit `Service/CacheOptimizer.php` to add new content types or modify cache durations.
+### Template Modifications (`_data/template_modifications.xml`)
 
-### Update Configuration Options
-1. Edit `_data/options.xml` to add/modify options
-2. Run `php cmd.php xf-addon:rebuild WindowsForum/SessionValidator` from XenForo root
-3. New options appear in Admin CP → Options
+Two inline `<script>` injections into `PAGE_CONTAINER`:
 
-### Debug Header Issues
-1. Enable debug mode in `/web/public_html/src/config.php`: `$config['debug'] = true;`
-2. Add logging in services: `\XF::logError('Debug: ' . $message);`
-3. Check XenForo error logs in Admin CP → Logs → Server error log
+1. **`wf_variation_fix`** (exec order 9) — Reads `xf_style_variation` cookie, sets `data-color-scheme`/`data-variation` on `<html>`. Prevents flash of wrong theme on CDN-cached pages.
 
-## Cloudflare Integration Notes
+2. **`wf_login_cache_reload`** (exec order 10) — Guest-only. Detects `xf_ls` cookie, deletes it, hides page, triggers `location.reload()`. Forces fresh fetch instead of stale cached guest page after login.
 
-- Headers are only visible to Cloudflare when `wfSessionValidator_cloudflareOnly` is enabled
-- Use Cloudflare's WAF rules to create security policies based on these headers
-- The addon validates against Cloudflare's known IP ranges for security
-- See README.md for example Cloudflare WAF rules
+### Cache-Busting Flow (Login)
+
+1. User logs in -> `LoginController::applyCacheBusting()` sets `xf_ls=1` cookie + `_sc` URL param
+2. Browser redirects to destination with `_sc` -> cache miss -> fresh page for logged-in user
+3. If browser serves cached guest page (Safari, aggressive LiteSpeed), `wf_login_cache_reload` JS detects `xf_ls` cookie -> clears cookie -> reloads
+4. On logout, `LogoutController` clears `xf_ls` cookie + sends `Clear-Site-Data: "cache"`
+
+## Configuration
+
+All options in `_data/options.xml`, managed via Admin CP -> Options -> Session Validator. Prefixed `wfSessionValidator_*` and `wfCacheOptimizer_*`.
+
+Key options:
+- `wfSessionValidator_enabled` / `wfCacheOptimizer_enabled` — master switches
+- `wfSessionValidator_cloudflareOnly` — restrict headers to Cloudflare requests (default: true)
+- `wfCacheOptimizer_extendedCacheNodes` — comma-separated node IDs for extended cache (default: "4")
+- Thread age thresholds (`ageThreshold1Day`, `ageThreshold7Days`, `ageThreshold30Days`, `ancientThreshold`) and cache durations (`threadFresh`, `thread1Day`, `thread7Days`, `thread30Days`, `ancientCache` + extended variants) are all configurable
+
+## Debugging
+
+```bash
+# Check which caching path a URL takes
+curl -sI "https://windowsforum.com/some-url/?_nc=$(date +%s)" | grep -iE 'x-cache-optimizer|last-modified|x-litespeed-tag|cache-control'
+```
+
+- `X-Cache-Optimizer` — identifies the handler (e.g., `thread-3.5d`, `media-4043.4d`, `member`, `tag`, `whats-new`, `help`, `no-cache-user`, `error-404`, `default`)
+- `Last-Modified` — actual content timestamp from DB (threads, forums, media, albums, resources, members, tags)
+- `X-LiteSpeed-Tag` — cache purge tags (e.g., `public, T401039`, `public, M123`)
+- Error logging: `\XF::logError('message')` -> Admin CP -> Logs -> Server error log
+- Always check `headers_sent()` before setting headers; wrap DB queries in try-catch

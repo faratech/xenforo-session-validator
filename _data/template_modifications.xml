@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <template_modifications>
+  <modification modification_key="wf_variation_fix"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Client-side style variation fix for CDN-cached pages"
+               execution_order="9"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<meta charset="utf-8" />]]></find>
+    <replace><![CDATA[<meta charset="utf-8" />
+<script data-cfasync="false">!function(){var d=document.documentElement,p=d.getAttribute("data-cookie-prefix")||"xf_",cn=p+"style_variation",m=document.cookie.match(new RegExp("(?:^|;\\s*)"+cn+"=([^;]+)"));if(m){var v=decodeURIComponent(m[1]);if(v==="alternate"){d.setAttribute("data-color-scheme","dark");d.setAttribute("data-variation","alternate")}else if(v==="default"){d.setAttribute("data-color-scheme","light");d.setAttribute("data-variation","default")}else{d.removeAttribute("data-color-scheme");d.removeAttribute("data-variation")}}document.addEventListener("DOMContentLoaded",function(){var cv="";var cm=document.cookie.match(new RegExp("(?:^|;\\s*)"+cn+"=([^;]+)"));if(cm)cv=decodeURIComponent(cm[1])||"";var items=document.querySelectorAll(".menu-linkRow[data-xf-click='style-variation']");items.forEach(function(el){var ev=el.getAttribute("data-variation")||"";if(ev===cv)el.classList.add("is-selected");else el.classList.remove("is-selected")})})}()</script>]]></replace>
+  </modification>
   <modification modification_key="wf_login_cache_reload"
                addon_id="WindowsForum/SessionValidator"
                type="public"
@@ -10,18 +22,6 @@
                action="str_replace">
     <find><![CDATA[<meta charset="utf-8" />]]></find>
     <replace><![CDATA[<meta charset="utf-8" />
-<xf:if is="!$xf.visitor.user_id"><script>!function(){var p=document.documentElement.getAttribute("data-cookie-prefix")||"xf_";if(document.cookie.indexOf(p+"ls=")!==-1){var d=document.documentElement,dark=d.getAttribute("data-color-scheme")==="dark";d.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(dark?"#202122":"#eff5f6")+"!important";location.reload()}}()</script></xf:if>]]></replace>
-  </modification>
-  <modification modification_key="wf_style_cache_reload"
-               addon_id="WindowsForum/SessionValidator"
-               type="public"
-               template="PAGE_CONTAINER"
-               description="Reload stale cached pages after style/variation change (Safari fallback)"
-               execution_order="11"
-               enabled="1"
-               action="str_replace">
-    <find><![CDATA[<meta charset="utf-8" />]]></find>
-    <replace><![CDATA[<meta charset="utf-8" />
-<script>!function(){var p=document.documentElement.getAttribute("data-cookie-prefix")||"xf_",c=p+"sc=";if(document.cookie.indexOf(c)!==-1){document.cookie=c+";path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";var d=document.documentElement,dark=d.getAttribute("data-color-scheme")==="dark";d.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(dark?"#202122":"#eff5f6")+"!important";location.reload()}}()</script>]]></replace>
+<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false">!function(){var p=document.documentElement.getAttribute("data-cookie-prefix")||"xf_",c=p+"ls=";if(document.cookie.indexOf(c)!==-1){document.cookie=c+";path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";var d=document.documentElement,dark=d.getAttribute("data-color-scheme")==="dark";d.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(dark?"#202122":"#eff5f6")+"!important";location.reload()}}()</script></xf:if>]]></replace>
   </modification>
 </template_modifications>

@@ -4,6 +4,25 @@ namespace WindowsForum\SessionValidator;
 
 class Listener
 {
+    private static ?bool $validatorEnabled = null;
+    private static ?bool $cacheOptimizerEnabled = null;
+
+    private static function isValidatorEnabled(): bool
+    {
+        if (self::$validatorEnabled === null) {
+            self::$validatorEnabled = !empty(\XF::app()->options()->wfSessionValidator_enabled);
+        }
+        return self::$validatorEnabled;
+    }
+
+    private static function isCacheOptimizerEnabled(): bool
+    {
+        if (self::$cacheOptimizerEnabled === null) {
+            self::$cacheOptimizerEnabled = !empty(\XF::app()->options()->wfCacheOptimizer_enabled);
+        }
+        return self::$cacheOptimizerEnabled;
+    }
+
     /**
      * Listen to the app_setup event to validate sessions early in the request cycle
      */
@@ -16,8 +35,7 @@ class Listener
         }
 
         // Check if the add-on is enabled
-        $options = $app->options();
-        if (empty($options->wfSessionValidator_enabled))
+        if (!self::isValidatorEnabled())
         {
             return;
         }
@@ -32,9 +50,7 @@ class Listener
      */
     public static function appAdminSetup(\XF\Admin\App $app)
     {
-        // Check if the add-on is enabled
-        $options = $app->options();
-        if (empty($options->wfSessionValidator_enabled))
+        if (!self::isValidatorEnabled())
         {
             return;
         }
@@ -49,9 +65,7 @@ class Listener
      */
     public static function appApiSetup(\XF\Api\App $app)
     {
-        // Check if the add-on is enabled
-        $options = $app->options();
-        if (empty($options->wfSessionValidator_enabled))
+        if (!self::isValidatorEnabled())
         {
             return;
         }
@@ -74,8 +88,7 @@ class Listener
         }
 
         // Check if cache optimization is enabled
-        $options = $app->options();
-        if (empty($options->wfCacheOptimizer_enabled))
+        if (!self::isCacheOptimizerEnabled())
         {
             return;
         }
@@ -94,29 +107,8 @@ class Listener
                 header('X-LiteSpeed-Cache-Control: no-cache');
             }
         }
-        else
-        {
-            // For guests, allow page caching with proper tags
-            if ($reply instanceof \XF\Mvc\Reply\View)
-            {
-                // Set cache tags based on content type for efficient purging
-                $routePath = $app->request()->getRoutePath();
-                if (preg_match('#^threads/[^/]+\.(\d+)#', $routePath, $matches))
-                {
-                    if (!headers_sent())
-                    {
-                        header('X-LiteSpeed-Tag: thread_' . $matches[1]);
-                    }
-                }
-                elseif (preg_match('#^forums/[^/]+\.(\d+)#', $routePath, $matches))
-                {
-                    if (!headers_sent())
-                    {
-                        header('X-LiteSpeed-Tag: forum_' . $matches[1]);
-                    }
-                }
-            }
-        }
+        // Guest LiteSpeed tags are set by CacheOptimizer::setCacheControlHeaders()
+        // via the app_pub_complete event — no need to duplicate here.
     }
     
     /**
@@ -131,14 +123,17 @@ class Listener
         }
         
         // Check if cache optimization is enabled
-        $options = $app->options();
-        if (empty($options->wfCacheOptimizer_enabled))
+        if (!self::isCacheOptimizerEnabled())
         {
             return;
         }
-        
-        // Skip if not a successful response
-        if ($response->httpCode() !== 200)
+
+        // Skip if not a cacheable response
+        // 200 OK, 301/308 permanent redirects, 404 not found, 410 gone
+        // Caching 404/410 prevents bots from hammering origin with junk URLs
+        $httpCode = $response->httpCode();
+        $cacheableStatuses = [200, 301, 308, 400, 403, 404, 410];
+        if (!in_array($httpCode, $cacheableStatuses))
         {
             return;
         }
