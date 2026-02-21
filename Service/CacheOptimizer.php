@@ -411,7 +411,8 @@ class CacheOptimizer
             'account/security',
             'account/connected-accounts',
             'misc/accept-terms',
-            'misc/contact'
+            'misc/contact',
+            'misc/style'
         ];
 
         foreach ($authRoutes as $route) {

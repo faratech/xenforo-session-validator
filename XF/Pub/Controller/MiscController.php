@@ -2,10 +2,28 @@
 
 namespace WindowsForum\SessionValidator\XF\Pub\Controller;
 
+use XF\Mvc\ParameterBag;
 use XF\Mvc\Reply\Redirect;
+use XF\Repository\StyleRepository;
 
 class MiscController extends XFCP_MiscController
 {
+    /**
+     * Skip CSRF pre-dispatch check for guest style-variation requests.
+     * On CDN-cached pages the data-csrf token is signed with a different xf_csrf
+     * cookie than what vc.php later sets, so CSRF always fails for guests.
+     * Style variation is a non-destructive preference cookie — safe to skip.
+     */
+    public function checkCsrfIfNeeded($action, ParameterBag $params)
+    {
+        if ($action === 'StyleVariation' && !\XF::visitor()->user_id)
+        {
+            return;
+        }
+
+        parent::checkCsrfIfNeeded($action, $params);
+    }
+
     public function actionStyle()
     {
         $reply = parent::actionStyle();
@@ -51,7 +69,21 @@ class MiscController extends XFCP_MiscController
 
     public function actionStyleVariation(): \XF\Mvc\Reply\AbstractReply
     {
-        $reply = parent::actionStyleVariation();
+        try
+        {
+            $reply = parent::actionStyleVariation();
+        }
+        catch (\XF\Mvc\Reply\Exception $e)
+        {
+            // CSRF fails on CDN-cached pages: the data-csrf token baked into cached HTML
+            // was signed with a different xf_csrf cookie than what vc.php later sets.
+            // For guests, style variation is just a preference cookie — handle without CSRF.
+            if (!\XF::visitor()->user_id)
+            {
+                return $this->handleGuestStyleVariationFallback();
+            }
+            throw $e;
+        }
 
         if ($reply instanceof Redirect)
         {
@@ -80,6 +112,66 @@ class MiscController extends XFCP_MiscController
             }
         }
 
+        return $reply;
+    }
+
+    /**
+     * Handle style variation for guests when CSRF validation fails (CDN-cached pages).
+     * Replicates the essential logic from XF's actionStyleVariation().
+     */
+    protected function handleGuestStyleVariationFallback(): \XF\Mvc\Reply\AbstractReply
+    {
+        $styleRepo = \XF::repository(StyleRepository::class);
+        $selectedStyleId = $styleRepo->getSelectedStyleIdForUser(\XF::visitor());
+        $style = \XF::app()->style($selectedStyleId);
+
+        if ($this->request->exists('variation'))
+        {
+            $variation = $this->filter('variation', 'str');
+            if (!in_array($variation, $style->getVariations()))
+            {
+                $variation = '';
+            }
+        }
+        else if ($this->filter('reset', 'bool'))
+        {
+            $variation = '';
+        }
+        else
+        {
+            return $this->redirect($this->buildLink('index'));
+        }
+
+        // Set cookie with httpOnly=false so JS and CF Worker can read it
+        $this->app->response()->setCookie('style_variation', $variation ?: false, 0, null, false);
+
+        $icon = $style->getVariationIcon($variation);
+        $colorScheme = $variation
+            ? $style->getPropertyVariation('styleType', $variation)
+            : '';
+        $metaThemeColor = $variation
+            ? $style->getPropertyVariation('metaThemeColor', $variation)
+            : '';
+        if ($metaThemeColor)
+        {
+            $metaThemeColor = $this->app()->templater()->func('parse_less_color', [$metaThemeColor]);
+        }
+
+        $redirect = $this->getDynamicRedirectIfNot(
+            $this->buildLink('misc/style-variation')
+        );
+        $separator = strpos($redirect, '?') !== false ? '&' : '?';
+        $redirect .= $separator . '_sc=' . \XF::$time;
+
+        $this->app->response()->header('Clear-Site-Data', '"cache"');
+
+        $reply = $this->redirect($redirect);
+        $reply->setJsonParams([
+            'variation' => $variation,
+            'colorScheme' => $colorScheme,
+            'icon' => $icon,
+            'properties' => ['metaThemeColor' => $metaThemeColor ?: null],
+        ]);
         return $reply;
     }
 }

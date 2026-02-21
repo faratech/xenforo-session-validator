@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <template_modifications>
+  <modification modification_key="wf_inp_containment"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="CSS containment to reduce INP reflow cost"
+               execution_order="7"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<meta charset="utf-8" />]]></find>
+    <replace><![CDATA[<meta charset="utf-8" />
+<style>.block-container,.message-inner{contain:layout style}.structItem{content-visibility:auto;contain-intrinsic-size:auto 80px}.message{content-visibility:auto;contain-intrinsic-size:auto 200px}.p-body-sidebar .block{content-visibility:auto;contain-intrinsic-size:auto 300px;contain:layout style}[data-xf-lazy-slider]{overflow:hidden}</style>]]></replace>
+  </modification>
   <modification modification_key="wf_variation_fix"
                addon_id="WindowsForum/SessionValidator"
                type="public"
@@ -8,9 +20,9 @@
                execution_order="9"
                enabled="1"
                action="str_replace">
-    <find><![CDATA[<meta charset="utf-8" />]]></find>
-    <replace><![CDATA[<meta charset="utf-8" />
-<script data-cfasync="false">!function(){var d=document.documentElement,p=d.getAttribute("data-cookie-prefix")||"xf_",cn=p+"style_variation",m=document.cookie.match(new RegExp("(?:^|;\\s*)"+cn+"=([^;]+)"));if(m){var v=decodeURIComponent(m[1]);if(v==="alternate"){d.setAttribute("data-color-scheme","dark");d.setAttribute("data-variation","alternate")}else if(v==="default"){d.setAttribute("data-color-scheme","light");d.setAttribute("data-variation","default")}else{d.removeAttribute("data-color-scheme");d.removeAttribute("data-variation")}}document.addEventListener("DOMContentLoaded",function(){var cv="";var cm=document.cookie.match(new RegExp("(?:^|;\\s*)"+cn+"=([^;]+)"));if(cm)cv=decodeURIComponent(cm[1])||"";var items=document.querySelectorAll(".menu-linkRow[data-xf-click='style-variation']");items.forEach(function(el){var ev=el.getAttribute("data-variation")||"";if(ev===cv)el.classList.add("is-selected");else el.classList.remove("is-selected")})})}()</script>]]></replace>
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<script data-cfasync="false">!function(){var d=document.documentElement,p=d.getAttribute("data-cookie-prefix")||"xf_",cn=p+"style_variation",m=document.cookie.match(new RegExp("(?:^|;\\s*)"+cn+"=([^;]+)"));if(m){var v=decodeURIComponent(m[1]);if(v==="alternate"){d.setAttribute("data-color-scheme","dark");d.setAttribute("data-variation","alternate")}else if(v==="default"){d.setAttribute("data-color-scheme","light");d.setAttribute("data-variation","default")}else{d.removeAttribute("data-color-scheme");d.removeAttribute("data-variation")}}document.addEventListener("DOMContentLoaded",function(){var cv="";var cm=document.cookie.match(new RegExp("(?:^|;\\s*)"+cn+"=([^;]+)"));if(cm)cv=decodeURIComponent(cm[1])||"";var items=document.querySelectorAll(".menu-linkRow[data-xf-click='style-variation']");items.forEach(function(el){var ev=el.getAttribute("data-variation")||"";if(ev===cv)el.classList.add("is-selected");else el.classList.remove("is-selected")})});new MutationObserver(function(mutations){mutations.forEach(function(m){if(m.attributeName==="data-variation"){var v=d.getAttribute("data-variation");if(v){document.cookie=cn+"="+encodeURIComponent(v)+";path=/;secure;samesite=lax"}else{document.cookie=cn+"=;path=/;max-age=0;secure;samesite=lax"}}})}).observe(d,{attributes:true,attributeFilter:["data-variation"]});document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest("a");if(a&&a.href&&a.href.indexOf("/misc/style")!==-1){try{var u=new URL(a.href,location.origin);var sid=u.searchParams.get("style_id");if(sid&&u.pathname.replace(/\/$/,"").endsWith("/misc/style")){document.cookie=p+"style_id="+sid+";path=/;secure;samesite=lax"}}catch(ex){}}},true)}()</script>]]></replace>
   </modification>
   <modification modification_key="wf_login_cache_reload"
                addon_id="WindowsForum/SessionValidator"
@@ -20,8 +32,68 @@
                execution_order="10"
                enabled="1"
                action="str_replace">
-    <find><![CDATA[<meta charset="utf-8" />]]></find>
-    <replace><![CDATA[<meta charset="utf-8" />
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
 <xf:if is="!$xf.visitor.user_id"><script data-cfasync="false">!function(){var p=document.documentElement.getAttribute("data-cookie-prefix")||"xf_",c=p+"ls=";if(document.cookie.indexOf(c)!==-1){document.cookie=c+";path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";var d=document.documentElement,dark=d.getAttribute("data-color-scheme")==="dark";d.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(dark?"#202122":"#eff5f6")+"!important";location.reload()}}()</script></xf:if>]]></replace>
+  </modification>
+  <modification modification_key="wf_carousel_lazy_js"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="xfmg_widget_media_slider"
+               description="Remove eager carousel JS loading (loaded lazily via IntersectionObserver)"
+               execution_order="10"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[	<xf:js prod="xf/carousel-compiled.js" dev="vendor/fancyapps/carousel/carousel.umd.js, vendor/fancyapps/carousel/carousel.autoplay.umd.js" />
+	<xf:js src="xfmg/slider.js" min="1" />]]></find>
+    <replace><![CDATA[]]></replace>
+  </modification>
+  <modification modification_key="wf_carousel_lazy_init"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="xfmg_widget_media_slider"
+               description="Defer carousel init until element enters viewport"
+               execution_order="11"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[data-xf-init="item-slider"]]></find>
+    <replace><![CDATA[data-xf-lazy-slider="1"]]></replace>
+  </modification>
+  <modification modification_key="wf_carousel_lazy_loader"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="IntersectionObserver lazy-loader for carousel JS"
+               execution_order="11"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<script data-cfasync="false">!function(){document.addEventListener("DOMContentLoaded",function(){var a=document.querySelectorAll("[data-xf-lazy-slider]");if(!a.length)return;var l=!1;function s(u,c){var e=document.createElement("script");e.src=u;e.onload=c;document.head.appendChild(e)}function r(el){el.setAttribute("data-xf-init","item-slider");el.removeAttribute("data-xf-lazy-slider");XF.activate(el.parentNode)}function g(el){if(l){r(el);return}if(window.Carousel){s("/js/xfmg/slider.min.js",function(){l=!0;r(el)});return}s("/js/xf/carousel-compiled.js",function(){s("/js/xfmg/slider.min.js",function(){l=!0;r(el)})})}var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){io.unobserve(e.target);g(e.target)}})},{rootMargin:"300px"});a.forEach(function(el){io.observe(el)})})}()</script>]]></replace>
+  </modification>
+  <modification modification_key="wf_inline_preamble"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="helper_js_global"
+               description="Inline preamble.js to eliminate render-blocking request"
+               execution_order="10"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[	<xf:if is="$xf.fullJs">
+		<script{{ $xf.request.isRocketLoaderDisabled() ? ' data-cfasync="false"' : ''}} src="{{ js_url('xf/preamble.js') }}"></script>
+	<xf:else />
+		<script{{ $xf.request.isRocketLoaderDisabled() ? ' data-cfasync="false"' : ''}} src="{{ js_url('xf/preamble.min.js') }}"></script>
+	</xf:if>]]></find>
+    <replace><![CDATA[	<script{{ $xf.request.isRocketLoaderDisabled() ? ' data-cfasync="false"' : ''}}>
+const XF={};window.XF=XF;
+((k,f)=>{function n(a){return(a=(new RegExp("(^| )"+u+a+"=([^;]+)(;|$)")).exec(f.cookie))?decodeURIComponent(a[2]):null}function p(a){const c=f.createElement("style");c.type="text/css";c.innerHTML=a;f.head.appendChild(c)}const l=f.documentElement,u=l.getAttribute("data-cookie-prefix")||"",v=l.getAttribute("data-app");l.addEventListener("error",a=>{a=a.target;switch(a.getAttribute("data-onerror")){case "hide":XF.display(a,"none");break;case "hide-parent":XF.display(a.parentNode,"none")}},!0);let q=
+!1;const r=[];XF.ready=a=>{q?setTimeout(a,0):r.push(a)};f.addEventListener("DOMContentLoaded",()=>{q=!0;for(const a of r)setTimeout(a,0)});XF.Feature=(()=>{function a(){let d=f.body;d||(d=f.createElement("body"),d.dataset.fake="true",f.body=d);return d}function c(){"true"===f.body.dataset.fake&&f.body.parentNode.removeChild(f.body)}function e(d){let b=l.className;t&&(b=b.replace(/(^|\s)has-no-js($|\s)/,"$1has-js$2"),t=!1);d.length&&(b+=" "+d.join(" "));l.className=b}const g={touchevents:()=>"ontouchstart"in
+k,passiveeventlisteners:()=>{let d=!1;try{const b=Object.defineProperty({},"passive",{get:()=>{d=!0}}),m=()=>{};k.addEventListener("test",m,b);k.removeEventListener("test",m,b)}catch(b){}return d},hiddenscroll:()=>{var d=a();const b=f.createElement("div");b.style.width="100px";b.style.height="100px";b.style.overflow="scroll";b.style.position="absolute";b.style.top="-9999px";d.appendChild(b);d=b.offsetWidth===b.clientWidth;b.parentNode.removeChild(b);c();return d},overflowanchor:()=>"CSS"in k&&"supports"in
+k.CSS&&k.CSS.supports("overflow-anchor","auto"),displaymodestandalone:()=>"standalone"in k.navigator&&k.navigator.standalone||k.matchMedia("(display-mode: standalone)").matches,flexgap:()=>{var d=a();let b;b=f.createElement("div");b.style.display="flex";b.style.flexDirection="column";b.style.rowGap="10px";b.appendChild(f.createElement("div"));b.appendChild(f.createElement("div"));d.appendChild(b);d=10===b.scrollHeight;b.parentNode.removeChild(b);c();return d}},h={};let t=!0;return{runTests:function(){const d=
+[];let b;for(const m of Object.keys(g))"undefined"===typeof h[m]&&(b=!!g[m](),d.push("has-"+(b?"":"no-")+m),h[m]=b);e(d)},runTest:function(d,b){b=!!b();e(["has-"+(b?"":"no-")+d]);h[d]=b},has:function(d){return"undefined"===typeof h[d]?(console.error("Asked for unknown test results: "+d),!1):h[d]}}})();XF.Feature.runTests();"public"===v&&(()=>{var a=n("notice_dismiss");a=a?a.split(","):[];const c=null!==n("consent"),e=[];for(let g of a)g=parseInt(g,10),-1===g?e.push('.notice.notice--cookie[data-notice-id="'+
+g+'"]'):0!==g&&e.push('.notice[data-notice-id="'+g+'"]');c&&p('.notice.notice--cookieAdvanced[data-notice-id="-1"] { display: none }');e.length&&p(e.join(", ")+" { display: none !important }")})();(()=>{const a=navigator.userAgent.toLowerCase();var c;if(c=/trident\/.*rv:([0-9.]+)/.exec(a))c={browser:"msie",version:parseFloat(c[1])};else{c=/(msie)[ /]([0-9.]+)/.exec(a)||/(edge)[ /]([0-9.]+)/.exec(a)||/(chrome)[ /]([0-9.]+)/.exec(a)||/(webkit)[ /]([0-9.]+)/.exec(a)||/(opera)(?:.*version|)[ /]([0-9.]+)/.exec(a)||
+0>a.indexOf("compatible")&&/(mozilla)(?:.*? rv:([0-9.]+)|)/.exec(a)||[];if("webkit"==c[1]&&a.indexOf("safari")){var e=/version[ /]([0-9.]+)/.exec(a);c=e?[c[0],"safari",e[1]]:(e=/ os ([0-9]+)_([0-9]+)/.exec(a))?[c[0],"safari",e[1]+"."+e[2]]:[c[0],"safari",0]}c={browser:c[1]||"",version:parseFloat(c[2])||0}}c.browser&&(c[c.browser]=!0);e="";let g=null,h;if(/(ipad|iphone|ipod)/.test(a)){if(e="ios",h=/os ([0-9_]+)/.exec(a))g=parseFloat(h[1].replace("_","."))}else(h=/android[ /]([0-9.]+)/.exec(a))?(e=
+"android",g=parseFloat(h[1])):/windows /.test(a)?e="windows":/linux/.test(a)?e="linux":/mac os/.test(a)&&(e="mac",1<navigator.maxTouchPoints&&"MacIntel"===navigator.platform&&(e="ios"));c.os=e;c.osVersion=g;e&&(c[e]=!0);l.className+=(c.os?" has-os-"+c.os:"")+(c.browser?" has-browser-"+c.browser:"");XF.browser=c})()})(window,document);
+	</script>]]></replace>
   </modification>
 </template_modifications>
