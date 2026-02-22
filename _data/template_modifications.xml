@@ -10,7 +10,7 @@
                action="str_replace">
     <find><![CDATA[<meta charset="utf-8" />]]></find>
     <replace><![CDATA[<meta charset="utf-8" />
-<style>.block-container,.message-inner{contain:layout style}.structItem{content-visibility:auto;contain-intrinsic-size:auto 80px}.message{content-visibility:auto;contain-intrinsic-size:auto 200px}.p-body-sidebar .block{content-visibility:auto;contain-intrinsic-size:auto 300px;contain:layout style}[data-xf-lazy-slider]{overflow:hidden}</style>]]></replace>
+<style>.block-container,.message-inner{contain:layout style}.message{content-visibility:auto;contain-intrinsic-size:auto 200px}.p-body-sidebar .block{content-visibility:auto;contain-intrinsic-size:auto 300px;contain:layout style}[data-xf-lazy-slider]{overflow:hidden}</style>]]></replace>
   </modification>
   <modification modification_key="wf_variation_fix"
                addon_id="WindowsForum/SessionValidator"
