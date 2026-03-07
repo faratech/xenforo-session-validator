@@ -44,14 +44,6 @@ class LoginController extends XFCP_LoginController
         $separator = strpos($url, '?') !== false ? '&' : '?';
         $reply->setUrl($url . $separator . '_sc=' . \XF::$time);
 
-        // Only send Clear-Site-Data on non-AJAX (full page) requests.
-        // On AJAX overlay login, this header forces synchronous cache clearing
-        // which stalls mobile browsers before the redirect can happen.
-        if (!$this->request->isXhr())
-        {
-            $this->app->response()->header('Clear-Site-Data', '"cache"');
-        }
-
         // Set a JS-readable cookie so cached guest pages can detect
         // the login and reload (Safari fallback). httpOnly=false so JS can read it.
         // Expires after 700s — slightly longer than max-age=600 so all
