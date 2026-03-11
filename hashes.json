@@ -13,7 +13,7 @@
     "src/addons/WindowsForum/SessionValidator/Listener.php": "4f3ce2645f2da6321e6c1837c14e3cdfb7a714e6c6e8cf5464e76ddd8285f43f",
     "src/addons/WindowsForum/SessionValidator/README-ADDON.md": "eb6c9b5a6635328508c49507aff028322058e4236d27241cbd0a51d0bf749491",
     "src/addons/WindowsForum/SessionValidator/README.md": "2f1888b32d8218360790ea583395f364a9d5c085e4d37d3a8139351a91ab3960",
-    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "5247214da1ee389becccdfa6f2ceae1954c9166596373e654cc6e6eab93163e9",
+    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "83f612e40550a9a9c0ad6bb950051aa13148b15a5b89e8c9ac32e7b00d4921eb",
     "src/addons/WindowsForum/SessionValidator/Service/SessionValidator.php": "fbaf337b03e712a1b725ef6ff914f6e4e74c30b864d4f6637bb880df92db9a7b",
     "src/addons/WindowsForum/SessionValidator/Setup.php": "5c273ed1d763650ffe50da163585cf0b9f748b9749be160b058d40bd34bce2e9",
     "src/addons/WindowsForum/SessionValidator/STYLE-VARIATION-ISSUE.md": "714a0dbb79b2f696f65703bbf0a9679a59a98a23c496e6336c83a80d47d11bc0",
