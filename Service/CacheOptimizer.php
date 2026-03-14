@@ -204,7 +204,7 @@ class CacheOptimizer
 
         // Check if this thread's forum gets extended cache times
         $extendedCacheNodes = $this->getExtendedCacheNodes();
-        $isExtendedCache = $nodeId && in_array($nodeId, $extendedCacheNodes);
+        $isExtendedCache = $nodeId && in_array((int) $nodeId, $extendedCacheNodes, true);
 
         // Determine cache times based on age
         if ($age === null) {
@@ -216,7 +216,7 @@ class CacheOptimizer
         } elseif ($age > $ancientThreshold) {
             // Ancient content (> 10 years)
             $cacheTime = $this->options->wfCacheOptimizer_ancientCache ?? 31536000; // 1 year
-            $edgeCache = $cacheTime;
+            $edgeCache = $cacheTime * 3;
         } elseif ($age < $threshold1Day) {
             // Fresh content (< 24 hours)
             $cacheTime = $isExtendedCache
@@ -263,7 +263,7 @@ class CacheOptimizer
     {
         // Check if this is Windows News forum (ID 4) without SQL
         $extendedCacheNodes = $this->getExtendedCacheNodes();
-        $isExtendedCache = in_array($forumId, $extendedCacheNodes);
+        $isExtendedCache = in_array((int) $forumId, $extendedCacheNodes, true);
 
         // Forum listings get different cache based on forum ID
         if ($isExtendedCache) {
@@ -430,134 +430,104 @@ class CacheOptimizer
     }
 
     /**
-     * Fetch thread entity (single query for age + node ID)
-     * @param int $threadId
-     * @return \XF\Entity\Thread|null
+     * Fetch a row via cache-first, DB-fallback pattern.
+     * Caches successful results in Redis for 60s to avoid per-request DB hits
+     * for Last-Modified and age-tier calculations.
      */
+    protected function cachedFetchRow($cacheKey, $sql, $params)
+    {
+        $cache = $this->app->cache();
+        if ($cache) {
+            $result = $cache->fetch($cacheKey);
+            if ($result !== false) {
+                return $result;
+            }
+        }
+
+        try {
+            $row = \XF::db()->fetchRow($sql, $params);
+        } catch (\Exception $e) {
+            \XF::logError('CacheOptimizer: Query failed (' . $cacheKey . '): ' . $e->getMessage());
+            return null;
+        }
+
+        if ($row && $cache) {
+            $cache->save($cacheKey, $row, 600);
+        }
+
+        return $row ?: null;
+    }
+
     protected function getThread($threadId)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT thread_id, node_id, last_post_date FROM xf_thread WHERE thread_id = ?',
-                $threadId
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get thread: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:thread:{$threadId}",
+            'SELECT thread_id, node_id, last_post_date FROM xf_thread WHERE thread_id = ?',
+            $threadId
+        );
     }
 
-    /**
-     * Fetch forum data (single PK lookup for last_post_date)
-     */
     protected function getForum($forumId)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT node_id, last_post_date FROM xf_forum WHERE node_id = ?',
-                $forumId
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get forum: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:forum:{$forumId}",
+            'SELECT node_id, last_post_date FROM xf_forum WHERE node_id = ?',
+            $forumId
+        );
     }
 
-    /**
-     * Fetch XFMG media item with computed last_modified timestamp
-     */
     protected function getMediaItem($mediaId)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT media_id, GREATEST(media_date, COALESCE(last_edit_date, 0), COALESCE(last_comment_date, 0)) AS last_modified FROM xf_mg_media_item WHERE media_id = ?',
-                $mediaId
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get media item: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:media:{$mediaId}",
+            'SELECT media_id, GREATEST(media_date, COALESCE(last_edit_date, 0), COALESCE(last_comment_date, 0)) AS last_modified FROM xf_mg_media_item WHERE media_id = ?',
+            $mediaId
+        );
     }
 
-    /**
-     * Fetch XFMG album with computed last_modified timestamp
-     */
     protected function getAlbum($albumId)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT album_id, GREATEST(create_date, COALESCE(last_update_date, 0), COALESCE(last_comment_date, 0)) AS last_modified FROM xf_mg_album WHERE album_id = ?',
-                $albumId
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get album: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:album:{$albumId}",
+            'SELECT album_id, GREATEST(create_date, COALESCE(last_update_date, 0), COALESCE(last_comment_date, 0)) AS last_modified FROM xf_mg_album WHERE album_id = ?',
+            $albumId
+        );
     }
 
-    /**
-     * Fetch XFRM resource with last_update timestamp
-     */
     protected function getResource($resourceId)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT resource_id, last_update FROM xf_rm_resource WHERE resource_id = ?',
-                $resourceId
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get resource: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:resource:{$resourceId}",
+            'SELECT resource_id, last_update FROM xf_rm_resource WHERE resource_id = ?',
+            $resourceId
+        );
     }
 
-    /**
-     * Fetch XFRM category with last_update timestamp
-     */
     protected function getResourceCategory($categoryId)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT resource_category_id, last_update FROM xf_rm_category WHERE resource_category_id = ?',
-                $categoryId
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get resource category: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:rcat:{$categoryId}",
+            'SELECT resource_category_id, last_update FROM xf_rm_category WHERE resource_category_id = ?',
+            $categoryId
+        );
     }
 
-    /**
-     * Fetch member data with computed last_modified from the most recent profile-visible change.
-     * Joins xf_user + xf_user_profile for avatar, banner, activity, and username changes.
-     */
     protected function getMember($userId)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT u.user_id, GREATEST(u.last_activity, COALESCE(u.avatar_date, 0), COALESCE(u.username_date, 0), COALESCE(p.banner_date, 0)) AS last_modified FROM xf_user u LEFT JOIN xf_user_profile p ON u.user_id = p.user_id WHERE u.user_id = ?',
-                $userId
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get member: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:member:{$userId}",
+            'SELECT u.user_id, GREATEST(u.last_activity, COALESCE(u.avatar_date, 0), COALESCE(u.username_date, 0), COALESCE(p.banner_date, 0)) AS last_modified FROM xf_user u LEFT JOIN xf_user_profile p ON u.user_id = p.user_id WHERE u.user_id = ?',
+            $userId
+        );
     }
 
-    /**
-     * Fetch tag data by URL slug (single indexed lookup for last_use_date)
-     */
     protected function getTag($tagSlug)
     {
-        try {
-            return \XF::db()->fetchRow(
-                'SELECT tag_id, last_use_date FROM xf_tag WHERE tag_url = ?',
-                $tagSlug
-            );
-        } catch (\Exception $e) {
-            \XF::logError('CacheOptimizer: Failed to get tag: ' . $e->getMessage());
-            return null;
-        }
+        return $this->cachedFetchRow(
+            "wf_co:tag:{$tagSlug}",
+            'SELECT tag_id, last_use_date FROM xf_tag WHERE tag_url = ?',
+            $tagSlug
+        );
     }
 
     /**
@@ -583,7 +553,7 @@ class CacheOptimizer
             $edgeCache = $cacheTime * 3;
         } elseif ($age > $ancientThreshold) {
             $cacheTime = $this->options->wfCacheOptimizer_ancientCache ?? 31536000;
-            $edgeCache = $cacheTime;
+            $edgeCache = $cacheTime * 3;
         } elseif ($age < $threshold1Day) {
             $cacheTime = $this->options->wfCacheOptimizer_threadFresh ?? 600;
             $edgeCache = $cacheTime * 3;

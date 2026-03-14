@@ -145,8 +145,8 @@ class SessionValidator
             header('XF-Verified-Session: true');
             header('XF-Session-Validated: ' . date('c'));
 
-            // Add CF-Cache-Status bypass hint for CloudFlare Workers
-            header('CF-Cache-Status: BYPASS');
+            // Signal to Cloudflare CDN not to cache authenticated responses
+            header('CDN-Cache-Control: no-store');
 
             // Check if verbose output is enabled
             $verboseOutput = \XF::options()->wfSessionValidator_verboseOutput ?? false;
