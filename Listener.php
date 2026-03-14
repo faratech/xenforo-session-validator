@@ -24,53 +24,45 @@ class Listener
     }
 
     /**
-     * Listen to the app_setup event to validate sessions early in the request cycle
+     * Listen to the app_pub_complete event to validate sessions and set verification headers.
+     * Must run at app_pub_complete (not app_setup) because the visitor/session
+     * isn't authenticated until after XF\App::start() completes.
      */
-    public static function appSetup(\XF\App $app)
+    public static function appPubCompleteValidator(\XF\App $app, \XF\Http\Response $response)
     {
-        // Only run on public-facing requests, not admin or API
-        if (!($app instanceof \XF\Pub\App))
-        {
-            return;
-        }
-
-        // Check if the add-on is enabled
         if (!self::isValidatorEnabled())
         {
             return;
         }
 
-        // Initialize and run the session validator using the gold standard code
         $validator = new Service\SessionValidator();
         $validator->validateAndSetHeaders();
     }
 
     /**
-     * Listen to the app_admin_setup event to validate admin sessions early in the request cycle
+     * Listen to the app_admin_complete event to validate admin sessions
      */
-    public static function appAdminSetup(\XF\Admin\App $app)
+    public static function appAdminComplete(\XF\App $app, \XF\Http\Response $response)
     {
         if (!self::isValidatorEnabled())
         {
             return;
         }
 
-        // Initialize and run the session validator for admin requests
         $validator = new Service\SessionValidator();
         $validator->validateAndSetHeaders();
     }
 
     /**
-     * Listen to the app_api_setup event to validate API sessions early in the request cycle
+     * Listen to the app_api_complete event to validate API sessions
      */
-    public static function appApiSetup(\XF\Api\App $app)
+    public static function appApiComplete(\XF\App $app, \XF\Http\Response $response)
     {
         if (!self::isValidatorEnabled())
         {
             return;
         }
 
-        // Initialize and run the session validator for API requests
         $validator = new Service\SessionValidator();
         $validator->validateAndSetHeaders();
     }
