@@ -69,6 +69,9 @@ class MiscController extends XFCP_MiscController
 
     public function actionStyleVariation(): \XF\Mvc\Reply\AbstractReply
     {
+        // Prevent search engines from indexing/crawling this preference endpoint
+        $this->app->response()->header('X-Robots-Tag', 'noindex, nofollow');
+
         try
         {
             $reply = parent::actionStyleVariation();

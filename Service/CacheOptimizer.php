@@ -319,7 +319,9 @@ class CacheOptimizer
     {
         // Set standard cache control with stale-while-revalidate for better performance
         $staleTime = min($maxAge * 2, 86400); // Allow stale content for up to 2x cache time or 24h max
-        $staleError = max($staleTime, 86400); // Serve stale on 5xx for at least 24h — prevents origin blips from reaching users
+        // Scale stale-if-error with TTL: short-lived pages get short stale windows,
+        // long-lived content (old threads) gets longer. Min 1 hour, max 24 hours.
+        $staleError = max(min($sMaxAge * 4, 86400), 3600);
         $this->response->header('Cache-Control', "public, max-age=$maxAge, s-maxage=$sMaxAge, stale-while-revalidate=$staleTime, stale-if-error=$staleError");
 
         // Only vary on Accept-Encoding for guest pages.
