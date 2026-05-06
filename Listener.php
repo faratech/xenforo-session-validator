@@ -93,11 +93,10 @@ class Listener
         {
             \XF\Pub\App::$allowPageCache = false;
 
-            // Also set a header for LiteSpeed to skip caching for this user
-            if (!headers_sent())
-            {
-                header('X-LiteSpeed-Cache-Control: no-cache');
-            }
+            // Set a header for LiteSpeed to skip caching for this user. Goes
+            // through the XF response object so it participates in the response
+            // lifecycle (clearable by CacheOptimizer if it overrides later).
+            $app->response()->header('X-LiteSpeed-Cache-Control', 'no-cache');
         }
         // Guest LiteSpeed tags are set by CacheOptimizer::setCacheControlHeaders()
         // via the app_pub_complete event — no need to duplicate here.
@@ -121,10 +120,10 @@ class Listener
         }
 
         // Skip if not a cacheable response
-        // 200 OK, 301/308 permanent redirects, 404 not found, 410 gone
-        // Caching 404/410 prevents bots from hammering origin with junk URLs
+        // 200 OK, redirects handled by CacheOptimizer, 400/404/410 bot probes.
+        // 403 is intentionally excluded because it can be per-visitor.
         $httpCode = $response->httpCode();
-        $cacheableStatuses = [200, 301, 308, 400, 403, 404, 410];
+        $cacheableStatuses = [200, 301, 302, 303, 308, 400, 404, 410];
         if (!in_array($httpCode, $cacheableStatuses))
         {
             return;

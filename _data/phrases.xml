@@ -107,19 +107,19 @@
   <phrase title="option_explain.wfCacheOptimizer_extendedThreadFresh" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for fresh threads in extended cache nodes. Default: 3600 (1 hour)]]></phrase>
   
   <phrase title="option.wfCacheOptimizer_extendedThreadFreshEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended cache: Fresh thread edge duration (seconds)]]></phrase>
-  <phrase title="option_explain.wfCacheOptimizer_extendedThreadFreshEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for fresh threads in extended nodes. Default: 7200 (2 hours)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThreadFreshEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for fresh threads in extended nodes. Default: 10800 (3 hours)]]></phrase>
   
   <phrase title="option.wfCacheOptimizer_extendedThread1Day" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache: 1-7 day thread duration (seconds)]]></phrase>
   <phrase title="option_explain.wfCacheOptimizer_extendedThread1Day" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for 1-7 day threads in extended cache nodes. Default: 86400 (1 day)]]></phrase>
   
   <phrase title="option.wfCacheOptimizer_extendedThread1DayEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended cache: 1-7 day thread edge duration (seconds)]]></phrase>
-  <phrase title="option_explain.wfCacheOptimizer_extendedThread1DayEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 1-7 day threads in extended nodes. Default: 172800 (2 days)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread1DayEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 1-7 day threads in extended nodes. Default: 259200 (3 days)]]></phrase>
   
   <phrase title="option.wfCacheOptimizer_extendedThread7Days" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache: 7-30 day thread duration (seconds)]]></phrase>
   <phrase title="option_explain.wfCacheOptimizer_extendedThread7Days" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for 7-30 day threads in extended cache nodes. Default: 604800 (7 days)]]></phrase>
   
   <phrase title="option.wfCacheOptimizer_extendedThread7DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[Extended cache: 7-30 day thread edge duration (seconds)]]></phrase>
-  <phrase title="option_explain.wfCacheOptimizer_extendedThread7DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 7-30 day threads in extended nodes. Default: 1209600 (14 days)]]></phrase>
+  <phrase title="option_explain.wfCacheOptimizer_extendedThread7DaysEdgeCache" version_id="1030000" version_string="1.3.0"><![CDATA[CDN/proxy cache (s-maxage) for 7-30 day threads in extended nodes. Default: 1814400 (21 days)]]></phrase>
   
   <phrase title="option.wfCacheOptimizer_extendedThread30Days" version_id="1020000" version_string="1.2.0"><![CDATA[Extended cache: 30+ day thread duration (seconds)]]></phrase>
   <phrase title="option_explain.wfCacheOptimizer_extendedThread30Days" version_id="1020000" version_string="1.2.0"><![CDATA[Browser cache for threads older than 30 days in extended nodes. Default: 2592000 (30 days)]]></phrase>

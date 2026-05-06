@@ -44,8 +44,9 @@ class CacheOptimizer
             return;
         }
 
-        // 301/308 permanent redirects are highly cacheable (no DB query needed)
         $httpCode = $this->response->httpCode();
+
+        // 301/308 permanent redirects are highly cacheable (no DB query needed)
         if ($httpCode === 301 || $httpCode === 308) {
             $this->setRedirectCacheHeaders($httpCode);
             return;
@@ -55,6 +56,17 @@ class CacheOptimizer
         // because a banned user's 403 is per-visitor and must never be public-cached.
         if ($visitor->user_id) {
             $this->setNoCacheForUser();
+            return;
+        }
+
+        // Only cache temporary redirects where the target is public and useful
+        // to collapse crawler traffic. Other 302/303 responses may be contextual.
+        if ($httpCode === 302 || $httpCode === 303) {
+            if ($this->isGuestCacheableRedirect($routePath)) {
+                $this->setTemporaryRedirectCacheHeaders($httpCode, $routePath);
+            } else {
+                $this->setNoCacheForRedirect($httpCode);
+            }
             return;
         }
 
@@ -209,38 +221,32 @@ class CacheOptimizer
         // Determine cache times based on age
         if ($age === null) {
             // Cannot determine age, use moderate caching
-            $cacheTime = $isExtendedCache
-                ? ($this->options->wfCacheOptimizer_extendedThread7Days ?? 604800)
-                : ($this->options->wfCacheOptimizer_thread7Days ?? 86400);
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $isExtendedCache
+                ? $this->getCachePair('wfCacheOptimizer_extendedThread7Days', 604800, 'wfCacheOptimizer_extendedThread7DaysEdgeCache', 1814400)
+                : $this->getCachePair('wfCacheOptimizer_thread7Days', 86400, 'wfCacheOptimizer_thread7DaysEdgeCache', 259200);
         } elseif ($age > $ancientThreshold) {
             // Ancient content (> 10 years)
-            $cacheTime = $this->options->wfCacheOptimizer_ancientCache ?? 31536000; // 1 year
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_ancientCache', 31536000, 'wfCacheOptimizer_ancientCacheEdgeCache', 31536000);
         } elseif ($age < $threshold1Day) {
             // Fresh content (< 24 hours)
-            $cacheTime = $isExtendedCache
-                ? ($this->options->wfCacheOptimizer_extendedThreadFresh ?? 3600)
-                : ($this->options->wfCacheOptimizer_threadFresh ?? 600);
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $isExtendedCache
+                ? $this->getCachePair('wfCacheOptimizer_extendedThreadFresh', 3600, 'wfCacheOptimizer_extendedThreadFreshEdgeCache', 10800)
+                : $this->getCachePair('wfCacheOptimizer_threadFresh', 600, 'wfCacheOptimizer_threadFreshEdgeCache', 1800);
         } elseif ($age < $threshold7Days) {
             // Recent content (1-7 days)
-            $cacheTime = $isExtendedCache
-                ? ($this->options->wfCacheOptimizer_extendedThread1Day ?? 86400)
-                : ($this->options->wfCacheOptimizer_thread1Day ?? 7200);
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $isExtendedCache
+                ? $this->getCachePair('wfCacheOptimizer_extendedThread1Day', 86400, 'wfCacheOptimizer_extendedThread1DayEdgeCache', 259200)
+                : $this->getCachePair('wfCacheOptimizer_thread1Day', 7200, 'wfCacheOptimizer_thread1DayEdgeCache', 21600);
         } elseif ($age < $threshold30Days) {
             // Older content (7-30 days)
-            $cacheTime = $isExtendedCache
-                ? ($this->options->wfCacheOptimizer_extendedThread7Days ?? 604800)
-                : ($this->options->wfCacheOptimizer_thread7Days ?? 86400);
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $isExtendedCache
+                ? $this->getCachePair('wfCacheOptimizer_extendedThread7Days', 604800, 'wfCacheOptimizer_extendedThread7DaysEdgeCache', 1814400)
+                : $this->getCachePair('wfCacheOptimizer_thread7Days', 86400, 'wfCacheOptimizer_thread7DaysEdgeCache', 259200);
         } else {
             // Archived content (30+ days)
-            $cacheTime = $isExtendedCache
-                ? ($this->options->wfCacheOptimizer_extendedThread30Days ?? 2592000)
-                : ($this->options->wfCacheOptimizer_thread30Days ?? 604800);
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $isExtendedCache
+                ? $this->getCachePair('wfCacheOptimizer_extendedThread30Days', 2592000, 'wfCacheOptimizer_extendedThread30DaysEdgeCache', 7776000)
+                : $this->getCachePair('wfCacheOptimizer_thread30Days', 604800, 'wfCacheOptimizer_thread30DaysEdgeCache', 2592000);
         }
 
         // Set cache headers with thread-specific tag for targeted purging
@@ -274,7 +280,7 @@ class CacheOptimizer
             $edgeCache = $this->options->wfCacheOptimizer_forumsEdgeCache ?? 1800;
         }
 
-        $this->setCacheControlHeaders($cacheTime, $edgeCache);
+        $this->setCacheControlHeaders($cacheTime, $edgeCache, "F$forumId");
 
         // Set Last-Modified from forum's last post date
         $forum = $this->getForum($forumId);
@@ -293,7 +299,7 @@ class CacheOptimizer
     {
         $cacheTime = $this->options->wfCacheOptimizer_homepage ?? 600;
         $edgeCache = $this->options->wfCacheOptimizer_homepageEdgeCache ?? 600;
-        $this->setCacheControlHeaders($cacheTime, $edgeCache);
+        $this->setCacheControlHeaders($cacheTime, $edgeCache, 'H');
         
         // Identify cache type for debugging
         $this->response->header('X-Cache-Optimizer', 'homepage');
@@ -344,6 +350,19 @@ class CacheOptimizer
         // Tell LiteSpeed to create separate cache entries per style/variation/language cookie.
         // Without this, all guests share one cache entry regardless of dark/light preference.
         $this->response->header('X-LiteSpeed-Vary', 'cookie=xf_style_variation, cookie=xf_style_id, cookie=xf_language_id');
+    }
+
+    protected function getCacheDuration($optionId, $default)
+    {
+        return max(0, (int) ($this->options->{$optionId} ?? $default));
+    }
+
+    protected function getCachePair($cacheOptionId, $cacheDefault, $edgeOptionId, $edgeDefault)
+    {
+        $cacheTime = $this->getCacheDuration($cacheOptionId, $cacheDefault);
+        $edgeCache = $this->getCacheDuration($edgeOptionId, $edgeDefault);
+
+        return [$cacheTime, $edgeCache];
     }
 
     /**
@@ -411,7 +430,6 @@ class CacheOptimizer
             'two-step',
             'oauth2',
             'account',
-            'account-confirmation',
             'conversations',
             'direct-messages',
             'find-threads',
@@ -433,8 +451,10 @@ class CacheOptimizer
 
     /**
      * Fetch a row via cache-first, DB-fallback pattern.
-     * Caches successful results in Redis for 60s to avoid per-request DB hits
-     * for Last-Modified and age-tier calculations.
+     * Caches successful results in Redis for 600s to avoid per-request DB hits
+     * for Last-Modified and age-tier calculations. LiveNewsCacheInvalidator
+     * deletes the wf_co:thread:* / wf_co:forum:* keys on save to keep the
+     * Last-Modified header in sync.
      */
     protected function cachedFetchRow($cacheKey, $sql, $params)
     {
@@ -525,8 +545,9 @@ class CacheOptimizer
 
     protected function getTag($tagSlug)
     {
+        $cacheSlug = preg_replace('/[^a-z0-9-]/i', '', (string) $tagSlug);
         return $this->cachedFetchRow(
-            "wf_co:tag:{$tagSlug}",
+            "wf_co:tag:{$cacheSlug}",
             'SELECT tag_id, last_use_date FROM xf_tag WHERE tag_url = ?',
             $tagSlug
         );
@@ -551,23 +572,17 @@ class CacheOptimizer
         $ancientThreshold = $this->options->wfCacheOptimizer_ancientThreshold ?? 315360000;
 
         if ($age === null) {
-            $cacheTime = $this->options->wfCacheOptimizer_thread7Days ?? 86400;
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_thread7Days', 86400, 'wfCacheOptimizer_thread7DaysEdgeCache', 259200);
         } elseif ($age > $ancientThreshold) {
-            $cacheTime = $this->options->wfCacheOptimizer_ancientCache ?? 31536000;
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_ancientCache', 31536000, 'wfCacheOptimizer_ancientCacheEdgeCache', 31536000);
         } elseif ($age < $threshold1Day) {
-            $cacheTime = $this->options->wfCacheOptimizer_threadFresh ?? 600;
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_threadFresh', 600, 'wfCacheOptimizer_threadFreshEdgeCache', 1800);
         } elseif ($age < $threshold7Days) {
-            $cacheTime = $this->options->wfCacheOptimizer_thread1Day ?? 7200;
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_thread1Day', 7200, 'wfCacheOptimizer_thread1DayEdgeCache', 21600);
         } elseif ($age < $threshold30Days) {
-            $cacheTime = $this->options->wfCacheOptimizer_thread7Days ?? 86400;
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_thread7Days', 86400, 'wfCacheOptimizer_thread7DaysEdgeCache', 259200);
         } else {
-            $cacheTime = $this->options->wfCacheOptimizer_thread30Days ?? 604800;
-            $edgeCache = $cacheTime * 3;
+            [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_thread30Days', 604800, 'wfCacheOptimizer_thread30DaysEdgeCache', 2592000);
         }
 
         $this->setCacheControlHeaders($cacheTime, $edgeCache, $contentTag);
@@ -698,7 +713,7 @@ class CacheOptimizer
     {
         $cacheTime = $this->options->wfCacheOptimizer_homepage ?? 600;
         $edgeCache = $this->options->wfCacheOptimizer_homepageEdgeCache ?? 600;
-        $this->setCacheControlHeaders($cacheTime, $edgeCache);
+        $this->setCacheControlHeaders($cacheTime, $edgeCache, 'WN');
 
         $this->response->header('X-Cache-Optimizer', 'whats-new');
     }
@@ -733,6 +748,35 @@ class CacheOptimizer
     }
 
     /**
+     * Only cache guest temporary redirects whose Location is deterministic and public.
+     */
+    protected function isGuestCacheableRedirect($routePath)
+    {
+        return preg_match('#^threads/[^/]+\.\d+/latest/?$#', $routePath)
+            || preg_match('#^whats-new/posts/?$#', $routePath);
+    }
+
+    /**
+     * Set short cache headers for public temporary redirects such as /latest.
+     */
+    protected function setTemporaryRedirectCacheHeaders($httpCode, $routePath)
+    {
+        if (preg_match('#^whats-new/posts/?$#', $routePath)) {
+            // This pointer can change quickly on an active site.
+            $maxAge = 30;
+            $sMaxAge = 120;
+        } else {
+            // Thread /latest redirects are stable enough to collapse crawler traffic,
+            // but still short enough to follow new replies soon.
+            $maxAge = 300;
+            $sMaxAge = 1800;
+        }
+
+        $this->setCacheControlHeaders($maxAge, $sMaxAge);
+        $this->response->header('X-Cache-Optimizer', 'redirect-temp-' . $httpCode);
+    }
+
+    /**
      * Set cache headers for permanent redirects (301/308)
      * These are immutable and can be cached aggressively without a DB query.
      */
@@ -744,6 +788,21 @@ class CacheOptimizer
         $this->setCacheControlHeaders($maxAge, $sMaxAge);
 
         $this->response->header('X-Cache-Optimizer', 'redirect-' . $httpCode);
+    }
+
+    /**
+     * Keep contextual temporary redirects out of shared caches.
+     */
+    protected function setNoCacheForRedirect($httpCode)
+    {
+        $this->response->header('Cache-Control', 'private, no-cache, no-store, must-revalidate, max-age=0');
+        $this->response->header('Pragma', 'no-cache');
+        $this->response->header('Expires', '0');
+        $this->response->header('Vary', 'Cookie');
+        $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store, private');
+        $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
+        $this->response->header('X-LiteSpeed-Tag', 'redirect-private');
+        $this->response->header('X-Cache-Optimizer', 'no-cache-redirect-' . $httpCode);
     }
 
     /**
