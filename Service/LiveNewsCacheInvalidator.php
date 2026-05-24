@@ -50,6 +50,81 @@ class LiveNewsCacheInvalidator
         }
     }
 
+    /**
+     * Purge the content's OWN url(s) — the page a guest/crawler hit and got a
+     * moderation 404 on — when content is released from the approval queue.
+     * Unlike purgeForThread() this is NOT gated on news nodes: a moderated
+     * post/thread in any node leaves a cached 404 that must be cleared.
+     */
+    public static function purgeContentForThread($thread, $postId = null)
+    {
+        if (!$thread || empty($thread->thread_id)) {
+            return;
+        }
+
+        $nodeIds = self::normalizeNodeIds(self::getThreadNodeIds($thread));
+
+        self::flushInternalCache((int) $thread->thread_id, $nodeIds);
+
+        $urls = self::buildContentUrls($thread, $nodeIds, $postId);
+        if (!$urls) {
+            return;
+        }
+
+        $jobKey = md5('content:' . implode("\n", $urls));
+        if (isset(self::$queued[$jobKey])) {
+            return;
+        }
+        self::$queued[$jobKey] = true;
+
+        try {
+            \XF::app()->jobManager()->enqueueUnique(
+                'wfLiveNewsCachePurge:' . $jobKey,
+                'WindowsForum\SessionValidator\Job\LiveNewsCachePurge',
+                [
+                    'urls' => array_values($urls),
+                    'node_ids' => array_values($nodeIds),
+                    'thread_id' => (int) $thread->thread_id,
+                ],
+                false
+            );
+        } catch (\Throwable $e) {
+            \XF::logException($e, false, 'SessionValidator moderation cache purge enqueue failed: ');
+        }
+    }
+
+    protected static function buildContentUrls($thread, array $nodeIds, $postId = null)
+    {
+        $router = \XF::app()->router('public');
+        $urls = [];
+
+        try {
+            self::addUrlWithSlashVariants($urls, $router->buildLink('canonical:threads', $thread));
+            self::addUrlWithSlashVariants($urls, $router->buildLink('canonical:threads/latest', $thread));
+            self::addUrlWithSlashVariants($urls, $router->buildLink('canonical:threads/unread', $thread));
+        } catch (\Throwable $e) {
+            // Fall back to a bare relative URL if the router/entity is unhappy.
+            self::addUrlWithSlashVariants($urls, 'threads/' . (int) $thread->thread_id . '/');
+        }
+
+        if ($postId) {
+            self::addUrlWithSlashVariants($urls, 'posts/' . (int) $postId . '/');
+        }
+
+        self::addUrlWithSlashVariants($urls, $router->buildLink('canonical:index'));
+        self::addUrlWithSlashVariants($urls, $router->buildLink('canonical:whats-new'));
+        self::addUrlWithSlashVariants($urls, $router->buildLink('canonical:whats-new/posts'));
+
+        foreach ($nodeIds as $nodeId) {
+            $forum = self::getForumForNode($thread, $nodeId);
+            if ($forum) {
+                self::addUrlWithSlashVariants($urls, $router->buildLink('canonical:forums', $forum));
+            }
+        }
+
+        return array_keys($urls);
+    }
+
     protected static function flushInternalCache($threadId, array $nodeIds)
     {
         $cache = \XF::app()->cache();

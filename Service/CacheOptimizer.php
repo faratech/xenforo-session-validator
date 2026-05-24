@@ -739,9 +739,11 @@ class CacheOptimizer
      */
     protected function setErrorCacheHeaders($httpCode)
     {
-        // 5 min browser / 1 hour edge — short enough to recover if content is created
-        $maxAge = 300;
-        $sMaxAge = 3600;
+        // 30s browser / 30s edge — long enough to absorb bot 404-probe floods,
+        // short enough that moderation-queued content becoming visible recovers
+        // quickly even if a targeted purge is missed.
+        $maxAge = 30;
+        $sMaxAge = 30;
         $this->setCacheControlHeaders($maxAge, $sMaxAge);
 
         $this->response->header('X-Cache-Optimizer', 'error-' . $httpCode);

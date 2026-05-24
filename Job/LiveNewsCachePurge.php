@@ -10,9 +10,10 @@ class LiveNewsCachePurge extends AbstractJob
     {
         $urls = $this->normalizeUrls($this->data['urls'] ?? []);
         $nodeIds = $this->normalizeNodeIds($this->data['node_ids'] ?? []);
+        $threadId = (int) ($this->data['thread_id'] ?? 0);
 
-        if ($nodeIds) {
-            $this->purgeLiteSpeedTags($nodeIds);
+        if ($nodeIds || $threadId) {
+            $this->purgeLiteSpeedTags($nodeIds, $threadId);
         }
 
         if ($urls) {
@@ -33,11 +34,15 @@ class LiveNewsCachePurge extends AbstractJob
         }
     }
 
-    protected function purgeLiteSpeedTags(array $nodeIds)
+    protected function purgeLiteSpeedTags(array $nodeIds, $threadId = 0)
     {
         $tags = ['H', 'WN'];
         foreach ($nodeIds as $nodeId) {
             $tags[] = 'F' . (int) $nodeId;
+        }
+        if ($threadId) {
+            // Matches the T<id> tag CacheOptimizer emits for thread pages.
+            $tags[] = 'T' . (int) $threadId;
         }
 
         $host = parse_url((string) \XF::options()->boardUrl, PHP_URL_HOST) ?: 'windowsforum.com';
