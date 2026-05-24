@@ -96,4 +96,16 @@ g+'"]'):0!==g&&e.push('.notice[data-notice-id="'+g+'"]');c&&p('.notice.notice--c
 "android",g=parseFloat(h[1])):/windows /.test(a)?e="windows":/linux/.test(a)?e="linux":/mac os/.test(a)&&(e="mac",1<navigator.maxTouchPoints&&"MacIntel"===navigator.platform&&(e="ios"));c.os=e;c.osVersion=g;e&&(c[e]=!0);l.className+=(c.os?" has-os-"+c.os:"")+(c.browser?" has-browser-"+c.browser:"");XF.browser=c})()})(window,document);
 	</script>]]></replace>
   </modification>
+  <modification modification_key="wf_post_logout_xhr_suppress"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Suppress 'Security error' modal from background-poll XHRs (LiveThread / PWA push-subscription) that fire with stale auth tokens during the in-flight-after-logout race"
+               execution_order="12"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<script data-cfasync="false">!function(){function apply(){if("undefined"==typeof XF||!XF.defaultAjaxSuccessError)return setTimeout(apply,50);var orig=XF.defaultAjaxSuccessError,bg=[/[?&]_wfLt=/,/misc\/update-push-subscription\b/];XF.defaultAjaxSuccessError=function(data,status,response,request){if(data&&data.errorHtml&&request&&request.url){var url=request.url,isBg=false;for(var i=0;i<bg.length;i++)if(bg[i].test(url)){isBg=true;break}if(isBg){var content=(data.errorHtml.content||"").toString();if(content.indexOf("Security error")!==-1){if(window.console&&console.debug)console.debug("[wf-suppress] background XHR security-error suppressed:",url);return true}}}return orig.apply(this,arguments)}}apply()}();</script>]]></replace>
+  </modification>
 </template_modifications>
