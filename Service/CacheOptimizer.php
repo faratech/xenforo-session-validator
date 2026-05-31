@@ -830,4 +830,191 @@ class CacheOptimizer
         // Identify that these headers came from us
         $this->response->header('X-Cache-Optimizer', 'no-cache-auth');
     }
+
+    /*-------------------------------------------------------------------------
+      Age-tiered Redis (DB1) page-cache STORE lifetime + per-thread purge index
+
+      XF's guest page cache uses one flat store TTL ($config['pageCache']
+      ['lifetime'] = 600). For cold long-tail threads that is far shorter than
+      the days-to-years the edge already holds them (see setThreadCacheHeaders),
+      so a crawler hitting a cold thread after a CF-edge eviction forces a full
+      ~150ms render at the origin instead of a ~3ms pagecache.php PREBHIT.
+
+      applyPageCacheTtl() lengthens the *store* TTL for OLD threads (mirroring
+      the edge age-tiers, capped), keeping FRESH threads at the 600s base so
+      replies still surface quickly. It also registers the resulting cache key
+      in a per-thread Redis set so a reply/edit/delete can purge every cached
+      variant of the thread (purgePageCacheForThread(), called from
+      LiveNewsCacheInvalidator on every thread write) — that purge is what makes
+      the long store TTL safe with no staleness regression on origin MISS.
+    --------------------------------------------------------------------------*/
+
+    /** Hard ceiling on the page-cache store TTL; a missed purge self-heals within this. */
+    const PAGE_CACHE_MAX_STORE_LIFETIME = 604800; // 7 days
+
+    /** Redis DB index that backs the guest page cache (config: cache.context.page). */
+    const PAGE_CACHE_REDIS_DB = 1;
+
+    /**
+     * Wired via $config['pageCache']['onSetup']. Runs at PageCache build time
+     * (pre-dispatch) with the instance, so setLifetime() lands before
+     * saveToCache(). Must never return false (that disables caching) and must
+     * never throw into the request path.
+     */
+    public static function applyPageCacheTtl(\XF\PageCache $pageCache): void
+    {
+        try {
+            $threadId = self::parseThreadId($pageCache->getRequest()->getRoutePath());
+            if (!$threadId) {
+                return; // only thread pages get an extended store TTL in this pass
+            }
+
+            $base = (int) $pageCache->getLifetime();
+            $ttl = self::threadPageStoreLifetime($threadId, $base);
+            if ($ttl <= $base) {
+                return; // fresh / unknown age — keep the short default TTL
+            }
+
+            $pageCache->setLifetime($ttl);
+            self::registerThreadPageKey($threadId, $pageCache->getCacheId(), $ttl);
+        } catch (\Throwable $e) {
+            // Caching is best-effort; never break the request on optimizer logic.
+        }
+    }
+
+    protected static function parseThreadId($routePath)
+    {
+        if (preg_match('#^threads/[^/]+\.(\d+)(?:/|$)#', (string) $routePath, $m)) {
+            return (int) $m[1];
+        }
+        return 0;
+    }
+
+    /**
+     * Age-tiered store TTL for a thread page, mirroring setThreadCacheHeaders'
+     * tiers (browser max-age column), floored at the base and capped. Fresh
+     * threads return the base so active discussions keep refreshing every 600s.
+     */
+    protected static function threadPageStoreLifetime($threadId, $base)
+    {
+        $row = self::fetchThreadRowStatic($threadId);
+        $age = ($row && $row['last_post_date']) ? (\XF::$time - (int) $row['last_post_date']) : null;
+        if ($age === null) {
+            return $base; // cannot determine age — stay safe at the short base
+        }
+
+        $options = \XF::options();
+        $t1Day = (int) ($options->wfCacheOptimizer_ageThreshold1Day ?? 86400);
+        $t7Days = (int) ($options->wfCacheOptimizer_ageThreshold7Days ?? 604800);
+        $t30Days = (int) ($options->wfCacheOptimizer_ageThreshold30Days ?? 2592000);
+
+        if ($age < $t1Day) {
+            $ttl = $base;   // fresh (<24h): unchanged
+        } elseif ($age < $t7Days) {
+            $ttl = 7200;    // 1-7d: 2h
+        } elseif ($age < $t30Days) {
+            $ttl = 86400;   // 7-30d: 1d
+        } else {
+            $ttl = self::PAGE_CACHE_MAX_STORE_LIFETIME; // 30d+ / ancient: 7d
+        }
+
+        return max($base, min($ttl, self::PAGE_CACHE_MAX_STORE_LIFETIME));
+    }
+
+    /**
+     * Single-row, cache-first thread fetch sharing the exact key + query of the
+     * instance getThread() so both paths reuse one cached row (and one
+     * LiveNewsCacheInvalidator flush keeps both in sync).
+     */
+    protected static function fetchThreadRowStatic($threadId)
+    {
+        $cache = \XF::app()->cache();
+        $key = "wf_co:thread:{$threadId}";
+
+        if ($cache) {
+            $row = $cache->fetch($key);
+            if ($row !== false) {
+                return $row ?: null;
+            }
+        }
+
+        try {
+            $row = \XF::db()->fetchRow(
+                'SELECT thread_id, node_id, last_post_date FROM xf_thread WHERE thread_id = ?',
+                $threadId
+            );
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if ($row && $cache) {
+            $cache->save($key, $row, 600);
+        }
+
+        return $row ?: null;
+    }
+
+    /**
+     * Record a cached thread-page key in the thread's purge index (DB1 set) so
+     * purgePageCacheForThread() can drop every cached variant (page N, style,
+     * variation, language, consent) on the next write to the thread.
+     */
+    protected static function registerThreadPageKey($threadId, $cacheId, $ttl)
+    {
+        if (!$cacheId) {
+            return;
+        }
+
+        $redis = \WindowsForum\SharedRedis::raw();
+        if (!$redis) {
+            return;
+        }
+
+        try {
+            $redis->select(self::PAGE_CACHE_REDIS_DB);
+            $idx = 'wf_pcidx:t:' . (int) $threadId;
+            $redis->sAdd($idx, $cacheId);
+            // Outlive the page entries it tracks so a later reply still finds them.
+            $redis->expire($idx, (int) $ttl + 86400);
+        } catch (\Throwable $e) {
+        } finally {
+            try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+    }
+
+    /**
+     * Purge every cached guest page variant of a thread from the Redis page
+     * cache (DB1). Called from LiveNewsCacheInvalidator on every thread/post
+     * save/delete so an extended store TTL never serves a stale page after a
+     * reply. The raw key is 'xf:' + cacheId, matching pagecache.php's reader.
+     */
+    public static function purgePageCacheForThread($threadId)
+    {
+        $threadId = (int) $threadId;
+        if (!$threadId) {
+            return;
+        }
+
+        $redis = \WindowsForum\SharedRedis::raw();
+        if (!$redis) {
+            return;
+        }
+
+        try {
+            $redis->select(self::PAGE_CACHE_REDIS_DB);
+            $idx = 'wf_pcidx:t:' . $threadId;
+            $cacheIds = $redis->sMembers($idx);
+            if ($cacheIds) {
+                $rawKeys = [];
+                foreach ($cacheIds as $cacheId) {
+                    $rawKeys[] = 'xf:' . $cacheId;
+                }
+                $redis->del($rawKeys);
+            }
+            $redis->del($idx);
+        } catch (\Throwable $e) {
+        } finally {
+            try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+    }
 }

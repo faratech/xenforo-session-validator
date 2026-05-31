@@ -142,6 +142,19 @@ class LiveNewsCacheInvalidator
         } catch (\Throwable $e) {
             // Best-effort; the live cache headers will recover within 600s on their own.
         }
+
+        // Drop the thread's cached guest pages from the Redis page cache (DB1).
+        // CacheOptimizer gives old threads an extended page-cache store TTL; this
+        // purge is what keeps that safe — a reply/edit/delete clears the stale
+        // cached page so the next origin MISS re-renders fresh instead of serving
+        // a days-old copy. Fresh threads (600s base TTL) carry no index and no-op.
+        if ($threadId) {
+            try {
+                CacheOptimizer::purgePageCacheForThread($threadId);
+            } catch (\Throwable $e) {
+                // Best-effort; a missed purge self-heals when the store TTL lapses.
+            }
+        }
     }
 
     protected static function getThreadNodeIds($thread)
