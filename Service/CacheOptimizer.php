@@ -36,6 +36,19 @@ class CacheOptimizer
         // Clear any existing cache headers
         $this->clearCacheHeaders();
 
+        // Never cache XenForo error pages. A Reply\Error renders the "An error
+        // occurred while the page was being generated" page with HTTP 200 (XF
+        // default), so a transient render failure on an otherwise-cacheable route
+        // (e.g. a brand-new news thread whose image/summary isn't ready) would
+        // otherwise inherit the full public/s-maxage treatment below and get
+        // pinned at the Cloudflare edge + LiteSpeed for hours. Detect it from the
+        // rendered body — the <html ... data-template="error"> marker sits in the
+        // first bytes — and force no-cache before any route-based caching runs.
+        if ($this->isErrorPage()) {
+            $this->setNoCacheForError();
+            return;
+        }
+
         // Always set no-cache for authentication-related pages — must run before
         // error code check because a 403 on /register/ or /login/ (IP ban) is
         // per-visitor and must never be publicly cached.
@@ -45,6 +58,17 @@ class CacheOptimizer
         }
 
         $httpCode = $this->response->httpCode();
+
+        // A redirect whose Location is the request's own URL is a self-redirect loop.
+        // Publicly caching it strips the Set-Cookie that would have broken the loop and
+        // pins an infinite "301 to itself" at the shared cache + edge (the homepage
+        // guest-redirect incident). Force it private + no-store so it is never shared-
+        // cached; a genuine cross-scheme http->https UPGRADE is NOT a self-redirect and
+        // stays cacheable (see isSelfRedirect).
+        if (in_array($httpCode, [301, 302, 303, 307, 308], true) && $this->isSelfRedirect()) {
+            $this->setNoCacheForRedirect($httpCode);
+            return;
+        }
 
         // 301/308 permanent redirects are highly cacheable (no DB query needed)
         if ($httpCode === 301 || $httpCode === 308) {
@@ -779,6 +803,76 @@ class CacheOptimizer
     }
 
     /**
+     * True when this response's Location points back at the request's own URL — a
+     * self-redirect that, if publicly cached, becomes an infinite loop (the cache
+     * strips the Set-Cookie that would otherwise break it on the next hop).
+     *
+     * Compares scheme + host + path + query. The ONE cross-scheme case that does NOT
+     * loop — a genuine http->https upgrade (insecure request, https Location, same
+     * host+path) — is excluded so it stays cacheable; a canonical redirect to a
+     * DIFFERENT path also differs and stays cacheable.
+     */
+    protected function isSelfRedirect()
+    {
+        $location = $this->response->header('Location');
+        if (!$location || !is_string($location)) {
+            return false;
+        }
+
+        $request   = $this->app->request();
+        $reqHost   = (string) $request->getHost();
+        $reqUri    = (string) $request->getRequestUri();   // path + query
+        $reqSecure = $request->isSecure();
+
+        $parts = parse_url(strtok($location, '#'));         // drop any #fragment
+        if ($parts === false) {
+            return false;
+        }
+        $locHost   = $parts['host'] ?? $reqHost;            // relative Location => same host
+        $locScheme = $parts['scheme'] ?? ($reqSecure ? 'https' : 'http');
+        $locUri    = ($parts['path'] ?? '/')
+                   . (isset($parts['query']) ? '?' . $parts['query'] : '');
+
+        // CRITICAL: getHost() returns HTTP_HOST verbatim, which for an h2/h3 request
+        // carries the port (windowsforum.com:443 — the proxy synthesizes HTTP_HOST as
+        // host[:port] from :authority) while a boardUrl-built Location is port-less.
+        // Strip the port from BOTH hosts (handles host:port and [ipv6]:port) so the
+        // compare is not silently defeated by it — without this, every h2 self-redirect
+        // is mis-classified as "different host" and wrongly cached.
+        $stripPort = static function ($h) {
+            $h = (string) $h;
+            if (isset($h[0]) && $h[0] === '[') {            // [ipv6] or [ipv6]:port
+                $end = strpos($h, ']');
+                return $end !== false ? substr($h, 0, $end + 1) : $h;
+            }
+            $colon = strpos($h, ':');                       // host:port (single colon)
+            return ($colon !== false && strpos($h, ':', $colon + 1) === false)
+                ? substr($h, 0, $colon) : $h;               // bare ipv6 (many colons) left as-is
+        };
+        $reqHost = $stripPort($reqHost);
+        $locHost = $stripPort($locHost);
+
+        // Compare path+query EXACTLY (only empty -> "/"); a trailing-slash canonical
+        // redirect (/foo/ -> /foo) is a DIFFERENT url, not a self-redirect, so it must
+        // stay cacheable.
+        $reqUri = ($reqUri === '') ? '/' : $reqUri;
+        $locUri = ($locUri === '') ? '/' : $locUri;
+
+        if (strcasecmp($locHost, $reqHost) !== 0) {
+            return false;                                   // different host: not a loop
+        }
+        if ($locUri !== $reqUri) {
+            return false;                                   // different path/query: not a loop
+        }
+        // Same host + path + query. It is a self-redirect loop UNLESS it is the one
+        // benign cross-scheme case: an insecure request upgraded to https (different
+        // cache key, so it does not loop). Everything else (https->https, http->http)
+        // loops and must not be shared-cached.
+        $isHttpToHttpsUpgrade = (!$reqSecure && $locScheme === 'https');
+        return !$isHttpToHttpsUpgrade;
+    }
+
+    /**
      * Set cache headers for permanent redirects (301/308)
      * These are immutable and can be cached aggressively without a DB query.
      */
@@ -831,6 +925,43 @@ class CacheOptimizer
         $this->response->header('X-Cache-Optimizer', 'no-cache-auth');
     }
 
+    /**
+     * Detect a rendered XenForo error page (Reply\Error / Reply\Exception).
+     *
+     * These render through the normal page container with HTTP 200, so the
+     * status code alone can't distinguish them from a real thread/forum page.
+     * The page container sets data-template="error" on the root <html> element,
+     * which lands in the first ~120 bytes of the body. We only inspect a short
+     * prefix to keep this O(1) on every guest response.
+     */
+    protected function isErrorPage()
+    {
+        $body = $this->response->body();
+        if (!is_string($body) || $body === '') {
+            return false;
+        }
+
+        return strpos(substr($body, 0, 1024), 'data-template="error"') !== false;
+    }
+
+    /**
+     * Force no-cache for error pages so a transient failure is never pinned
+     * at the CDN/origin caches. Mirrors setNoCacheForAuthPages() but public
+     * (the body is identical for all guests, so no Vary: Cookie is needed).
+     */
+    protected function setNoCacheForError()
+    {
+        $this->response->header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+        $this->response->header('Pragma', 'no-cache');
+        $this->response->header('Expires', '0');
+
+        $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store');
+        $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
+        $this->response->header('X-LiteSpeed-Tag', 'error');
+
+        $this->response->header('X-Cache-Optimizer', 'no-cache-error');
+    }
+
     /*-------------------------------------------------------------------------
       Age-tiered Redis (DB1) page-cache STORE lifetime + per-thread purge index
 
@@ -840,17 +971,19 @@ class CacheOptimizer
       so a crawler hitting a cold thread after a CF-edge eviction forces a full
       ~150ms render at the origin instead of a ~3ms pagecache.php PREBHIT.
 
-      applyPageCacheTtl() lengthens the *store* TTL for OLD threads (mirroring
-      the edge age-tiers, capped), keeping FRESH threads at the 600s base so
-      replies still surface quickly. It also registers the resulting cache key
-      in a per-thread Redis set so a reply/edit/delete can purge every cached
-      variant of the thread (purgePageCacheForThread(), called from
-      LiveNewsCacheInvalidator on every thread write) — that purge is what makes
-      the long store TTL safe with no staleness regression on origin MISS.
+      applyPageCacheTtl() extends the *store* TTL modestly for OLD threads
+      (short tiers, capped at the 1h ceiling to bound Redis DB1 RAM), keeping
+      FRESH threads at the 600s base so replies still surface quickly. It also
+      registers the resulting cache key in a per-thread Redis set so a
+      reply/edit/delete can purge every cached variant of the thread
+      (purgePageCacheForThread(), called from LiveNewsCacheInvalidator on every
+      thread write) — that purge is what makes the extended store TTL safe with
+      no staleness regression on origin MISS. The store tiers are intentionally
+      decoupled from (and much shorter than) the CF/browser header tiers.
     --------------------------------------------------------------------------*/
 
     /** Hard ceiling on the page-cache store TTL; a missed purge self-heals within this. */
-    const PAGE_CACHE_MAX_STORE_LIFETIME = 604800; // 7 days
+    const PAGE_CACHE_MAX_STORE_LIFETIME = 3600; // 1 hour (short-tier ceiling, bounds DB1 RAM)
 
     /** Redis DB index that backs the guest page cache (config: cache.context.page). */
     const PAGE_CACHE_REDIS_DB = 1;
@@ -891,9 +1024,10 @@ class CacheOptimizer
     }
 
     /**
-     * Age-tiered store TTL for a thread page, mirroring setThreadCacheHeaders'
-     * tiers (browser max-age column), floored at the base and capped. Fresh
-     * threads return the base so active discussions keep refreshing every 600s.
+     * Age-tiered store TTL for a thread page. Kept deliberately short (<= the 1h
+     * ceiling) to bound Redis DB1 memory; decoupled on purpose from the longer
+     * CF/browser header tiers in setThreadCacheHeaders. Floored at the base and
+     * capped. Fresh threads return the base so active discussions keep refreshing.
      */
     protected static function threadPageStoreLifetime($threadId, $base)
     {
@@ -909,13 +1043,13 @@ class CacheOptimizer
         $t30Days = (int) ($options->wfCacheOptimizer_ageThreshold30Days ?? 2592000);
 
         if ($age < $t1Day) {
-            $ttl = $base;   // fresh (<24h): unchanged
+            $ttl = $base;   // fresh (<24h): unchanged (600s base)
         } elseif ($age < $t7Days) {
-            $ttl = 7200;    // 1-7d: 2h
+            $ttl = 1800;    // 1-7d: 30m
         } elseif ($age < $t30Days) {
-            $ttl = 86400;   // 7-30d: 1d
+            $ttl = 3600;    // 7-30d: 1h
         } else {
-            $ttl = self::PAGE_CACHE_MAX_STORE_LIFETIME; // 30d+ / ancient: 7d
+            $ttl = self::PAGE_CACHE_MAX_STORE_LIFETIME; // 30d+ / ancient: 1h (ceiling)
         }
 
         return max($base, min($ttl, self::PAGE_CACHE_MAX_STORE_LIFETIME));

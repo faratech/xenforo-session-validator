@@ -15,7 +15,7 @@
     "src/addons/WindowsForum/SessionValidator/Listener.php": "76c4ddc360a2e04e4de2256968c6fff1c5388397a33f2607682a89c62da1ac41",
     "src/addons/WindowsForum/SessionValidator/README-ADDON.md": "eb6c9b5a6635328508c49507aff028322058e4236d27241cbd0a51d0bf749491",
     "src/addons/WindowsForum/SessionValidator/README.md": "2f1888b32d8218360790ea583395f364a9d5c085e4d37d3a8139351a91ab3960",
-    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "c1e2c97471cc8fecab0ae523634db313ef111409e97b2c78a220ca0828a3017f",
+    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "b2c7112da790f8e67efe31ce9222d5af51d05d3cb9293da8b500182c03636fc7",
     "src/addons/WindowsForum/SessionValidator/Service/LiveNewsCacheInvalidator.php": "6b4e1680e8b50487c2ccf4c977aa1fe77449256b63f2a65808f045389087267a",
     "src/addons/WindowsForum/SessionValidator/Service/SessionValidator.php": "3ff114e7f9f7591c61b3abbdea1ccf4537ea94e2617988ddbcac0340999ebad3",
     "src/addons/WindowsForum/SessionValidator/Setup.php": "3cf515a8d5dd8b2a4715e56236fc722185a219502c36131031a2614907c19aaa",
