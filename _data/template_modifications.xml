@@ -108,4 +108,17 @@ g+'"]'):0!==g&&e.push('.notice[data-notice-id="'+g+'"]');c&&p('.notice.notice--c
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
 <script data-cfasync="false">!function(){function apply(){if("undefined"==typeof XF||!XF.defaultAjaxSuccessError)return setTimeout(apply,50);var orig=XF.defaultAjaxSuccessError,bg=[/[?&]_wfLt=/,/misc\/update-push-subscription\b/];XF.defaultAjaxSuccessError=function(data,status,response,request){if(data&&data.errorHtml&&request&&request.url){var url=request.url,isBg=false;for(var i=0;i<bg.length;i++)if(bg[i].test(url)){isBg=true;break}if(isBg){var content=(data.errorHtml.content||"").toString();if(content.indexOf("Security error")!==-1){if(window.console&&console.debug)console.debug("[wf-suppress] background XHR security-error suppressed:",url);return true}}}return orig.apply(this,arguments)}}apply()}();</script>]]></replace>
   </modification>
+  <modification modification_key="wf_rum_collector"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Field web-vitals RUM: sampled 1-in-10, LCP/INP/CLS/TTFB/FCP beacon to /wv.php (prerender-safe)"
+               execution_order="13"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<script data-cfasync="false" defer src="/js/windowsforum/rum/web-vitals.iife.js?v=5"></script>
+<script data-cfasync="false" defer src="/js/windowsforum/rum/rum.js?v=1"></script>]]></replace>
+  </modification>
 </template_modifications>
