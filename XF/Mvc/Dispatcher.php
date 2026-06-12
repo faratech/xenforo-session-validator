@@ -44,8 +44,66 @@ class Dispatcher extends XFCP_Dispatcher
 	public function run($routePath = null)
 	{
 		$this->ensureSharedGuestCsrfCookie();
+		$this->applyPreviewStyleParam();
 
 		return parent::run($routePath);
+	}
+
+	/**
+	 * ?_wfStyle=<id> — shareable entry/exit link for the gated preview style
+	 * (see WindowsForum\SessionValidator\XF\Style). Guests only: logged-in
+	 * users take their account style preference instead. `?_wfStyle=0` exits.
+	 *
+	 * Sets the cookie for subsequent requests AND applies the style to the
+	 * current one (visitor style_id was already populated from cookies at
+	 * App::start before dispatch, so the cookie alone wouldn't show until the
+	 * next page). Param'd URLs are unique cache keys end to end, so cached
+	 * guest pages can't mask the switch.
+	 */
+	protected function applyPreviewStyleParam(): void
+	{
+		try
+		{
+			$request = $this->request;
+			if (!$request || !$request->exists('_wfStyle'))
+			{
+				return;
+			}
+
+			$visitor = \XF::visitor();
+			if ($visitor->user_id)
+			{
+				return;
+			}
+
+			$previewStyleId = (int) (\XF::config('wfPreviewStyleId') ?? 0);
+			if ($previewStyleId <= 0)
+			{
+				return;
+			}
+
+			$requested = $request->filter('_wfStyle', 'uint');
+			$response = $this->app->response();
+
+			if ($requested === $previewStyleId)
+			{
+				$response->setCookie('style_id', $previewStyleId, 30 * 86400, null, false);
+				$applyStyleId = $previewStyleId;
+			}
+			else
+			{
+				$response->setCookie('style_id', false);
+				$applyStyleId = 0;
+			}
+
+			$visitor->setReadOnly(false);
+			$visitor->setAsSaved('style_id', $applyStyleId);
+			$visitor->setReadOnly(true);
+		}
+		catch (\Throwable $e)
+		{
+			\XF::logException($e, false, 'SessionValidator preview style param: ');
+		}
 	}
 
 	protected function ensureSharedGuestCsrfCookie(): void
