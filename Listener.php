@@ -28,6 +28,20 @@ class Listener
      * Must run at app_pub_complete (not app_setup) because the visitor/session
      * isn't authenticated until after XF\App::start() completes.
      */
+    public static function entityPostSave(\XF\Mvc\Entity\Entity $entity): void
+    {
+        if (!($entity instanceof \XF\Entity\User) || !$entity->isInsert()) {
+            return;
+        }
+        if ($entity->user_state !== 'valid') {
+            return;
+        }
+
+        $request = \XF::app()->request();
+        $url     = 'https://' . $request->getServer('HTTP_HOST', 'windowsforum.com') . '/register';
+        Service\MetaCapi::queueCompleteRegistration($request, $entity, $url);
+    }
+
     public static function appPubCompleteValidator(\XF\App $app, \XF\Http\Response $response)
     {
         if (!self::isValidatorEnabled())
@@ -97,9 +111,30 @@ class Listener
             // through the XF response object so it participates in the response
             // lifecycle (clearable by CacheOptimizer if it overrides later).
             $app->response()->header('X-LiteSpeed-Cache-Control', 'no-cache');
+            return;
         }
-        // Guest LiteSpeed tags are set by CacheOptimizer::setCacheControlHeaders()
-        // via the app_pub_complete event — no need to duplicate here.
+
+        // GUEST: XF\Pub\App::complete() stores the response in the page cache
+        // (saveToCache) BEFORE firing app_pub_complete (where cache headers are normally
+        // set), so the stored copy would otherwise carry XF's default
+        // `Cache-control: private` (App.php) — replayed private by the page cache /
+        // pagecache.php. Set the PUBLIC headers HERE (pre-store) for normal pages, and
+        // DON'T store error/redirect/message/auth responses (they must never be served
+        // public — Reply\Error renders HTTP 200 and would otherwise be saveable). The
+        // app_pub_complete listener still runs the full optimizer on the final response.
+        if ($reply instanceof \XF\Mvc\Reply\Error
+            || $reply instanceof \XF\Mvc\Reply\Exception
+            || $reply instanceof \XF\Mvc\Reply\Message
+            || $reply instanceof \XF\Mvc\Reply\Redirect)
+        {
+            \XF\Pub\App::$allowPageCache = false;
+            return;
+        }
+
+        if (!(new Service\CacheOptimizer())->setGuestPreStoreHeaders())
+        {
+            \XF\Pub\App::$allowPageCache = false; // auth route → never store
+        }
     }
     
     /**
@@ -123,7 +158,7 @@ class Listener
         // 200 OK, redirects handled by CacheOptimizer, 400/404/410 bot probes.
         // 403 is intentionally excluded because it can be per-visitor.
         $httpCode = $response->httpCode();
-        $cacheableStatuses = [200, 301, 302, 303, 308, 400, 404, 410];
+        $cacheableStatuses = [200, 301, 302, 303, 304, 308, 400, 404, 410];
         if (!in_array($httpCode, $cacheableStatuses))
         {
             return;
@@ -132,6 +167,16 @@ class Listener
         // Initialize and run the cache optimizer
         $optimizer = new Service\CacheOptimizer();
         $optimizer->setCacheHeaders();
+
+        // Meta Conversions API — server-side PageView supplement (fires after response flush)
+        if ($httpCode === 200)
+        {
+            $request = $app->request();
+            $visitor = \XF::visitor();
+            $url     = 'https://' . $request->getServer('HTTP_HOST', 'windowsforum.com')
+                     . $request->getRequestUri();
+            Service\MetaCapi::queuePageView($request, $visitor, $url);
+        }
     }
     
     

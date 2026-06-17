@@ -33,6 +33,11 @@ class CacheOptimizer
         $request = $this->app->request();
         $routePath = $request->getRoutePath();
 
+        if ($routePath === 'wf-unfurl/image') {
+            $this->setCacheHeadersForUnfurlImage();
+            return;
+        }
+
         // Clear any existing cache headers
         $this->clearCacheHeaders();
 
@@ -79,7 +84,21 @@ class CacheOptimizer
         // Check if user is authenticated — must run BEFORE error code check
         // because a banned user's 403 is per-visitor and must never be public-cached.
         if ($visitor->user_id) {
-            $this->setNoCacheForUser();
+            // A member WRITE into a thread invalidates that thread's cached copies —
+            // the public entry AND every session's private one, on both nodes
+            // (httpjet applies X-LiteSpeed-Purge from any response and fans it out
+            // to its peer). Without this the member's own just-posted reply could
+            // hide behind their private entry's TTL.
+            if ($request->getRequestMethod() === 'post'
+                && preg_match('#^threads/[^/]+\.(\d+)(?:/|$)#', $routePath, $purgeMatch)
+            ) {
+                $this->response->header('X-LiteSpeed-Purge', 'tag=T' . $purgeMatch[1]);
+            }
+            if ($httpCode === 200) {
+                $this->setPrivateCacheForUser($routePath);
+            } else {
+                $this->setNoCacheForUser();
+            }
             return;
         }
 
@@ -107,6 +126,17 @@ class CacheOptimizer
         // which varies the cache key by xf_style_id cookie.
 
         // For guests, set cache headers based on content.
+        $this->applyPathBasedHeaders($routePath);
+    }
+
+    /**
+     * Path-based PUBLIC cache headers for a guest page. Shared by setCacheHeaders()
+     * (app_pub_complete) and setGuestPreStoreHeaders() (controller_post_dispatch — which
+     * runs BEFORE XF\Pub\App stores the response in the page cache, so the stored copy
+     * carries `public` instead of XF's default `private`).
+     */
+    protected function applyPathBasedHeaders($routePath)
+    {
         // Extract first path segment for O(1) prefix dispatch instead of sequential regex.
         $slashPos = strpos($routePath, '/');
         $prefix = $slashPos !== false ? substr($routePath, 0, $slashPos) : $routePath;
@@ -196,6 +226,34 @@ class CacheOptimizer
                 break;
         }
     }
+
+    /**
+     * Set PUBLIC guest cache headers BEFORE XenForo's page cache stores the response.
+     * `XF\Pub\App::complete()` calls `saveToCache()` BEFORE firing `app_pub_complete`
+     * (where setCacheHeaders runs), so without this the stored copy carries XF's default
+     * `Cache-control: private, no-cache, max-age=0` (App.php) and is replayed private by
+     * the page cache / pagecache.php. Returns false for auth routes so the caller disables
+     * page caching for them (they must never be stored or served public).
+     */
+    public function setGuestPreStoreHeaders()
+    {
+        if (headers_sent()) {
+            return false;
+        }
+        $routePath = $this->app->request()->getRoutePath();
+        if ($routePath === 'wf-unfurl/image') {
+            $this->setCacheHeadersForUnfurlImage();
+            return false;
+        }
+
+        $this->clearCacheHeaders();
+        if ($this->isAuthenticationRoute($routePath)) {
+            $this->setNoCacheForAuthPages();
+            return false;
+        }
+        $this->applyPathBasedHeaders($routePath);
+        return true;
+    }
     
     /**
      * Set no-cache headers for logged-in users
@@ -221,6 +279,56 @@ class CacheOptimizer
         $this->response->header('X-Cache-Optimizer', 'no-cache-user');
     }
 
+    /**
+     * Per-session PRIVATE cache for logged-in page VIEWS (httpjet --page-cache-private).
+     * The origin stores one copy per xf_session and only ever serves it back to that
+     * exact session; browsers still revalidate every load (max-age=0, must-revalidate)
+     * and Cloudflare never edge-caches it. Only allowlisted view routes opt in —
+     * everything else keeps the hard no-cache. Deliberately NO `no-store` on the
+     * standard Cache-Control: that token vetoes the origin's private store
+     * (no-store always wins in httpjet's classifier).
+     */
+    protected function setPrivateCacheForUser($routePath)
+    {
+        $tag = null;
+        $slashPos = strpos($routePath, '/');
+        $prefix = $slashPos !== false ? substr($routePath, 0, $slashPos) : $routePath;
+        switch ($prefix) {
+            case '':
+                $tag = 'H';
+                break;
+            case 'threads':
+                if (preg_match('#^threads/[^/]+\.(\d+)(?:/|$)#', $routePath, $m)) {
+                    $tag = 'T' . $m[1];
+                }
+                break;
+            case 'forums':
+                if (preg_match('#^forums/[^/]+\.(\d+)(?:/|$)#', $routePath, $m)) {
+                    $tag = 'F' . $m[1];
+                }
+                break;
+            case 'whats-new':
+                $tag = 'WN';
+                break;
+        }
+        if ($tag === null) {
+            // Not an allowlisted page view (account/, conversations/, posts/, …):
+            // the pre-tier hard bypass.
+            $this->setNoCacheForUser();
+            return;
+        }
+
+        $this->response->header('Cache-Control', 'private, max-age=0, must-revalidate');
+        $this->response->header('Pragma', 'no-cache');
+        $this->response->header('Expires', '0');
+        $this->response->header('Vary', 'Cookie');
+        $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store, private');
+        $this->response->header('X-LiteSpeed-Cache-Control', 'private,max-age=60');
+        // 'private' groups every private entry for an ops sweep (purge tag=private);
+        // the content tag lets a write purge private copies alongside the public one.
+        $this->response->header('X-LiteSpeed-Tag', "private, $tag");
+        $this->response->header('X-Cache-Optimizer', 'private-cache-user');
+    }
 
     /**
      * Set cache headers for thread pages based on thread's actual age
@@ -461,7 +569,8 @@ class CacheOptimizer
             'email-stop',
             'misc/accept-terms',
             'misc/contact',
-            'misc/style'
+            'misc/style',
+            'search/auto-complete'
         ];
 
         foreach ($authRoutes as $route) {
@@ -925,6 +1034,28 @@ class CacheOptimizer
         $this->response->header('X-Cache-Optimizer', 'no-cache-auth');
     }
 
+    protected function setCacheHeadersForUnfurlImage()
+    {
+        $this->response->removeHeader('Pragma');
+        $this->response->removeHeader('Expires');
+        $this->response->removeHeader('X-LiteSpeed-Cache-Control');
+        $this->response->removeHeader('X-LiteSpeed-Tag');
+
+        if (!headers_sent()) {
+            @header_remove('Pragma');
+            @header_remove('Expires');
+            @header_remove('X-LiteSpeed-Cache-Control');
+            @header_remove('X-LiteSpeed-Tag');
+        }
+
+        $this->response->header('Cache-Control', 'public, max-age=604800, immutable');
+        $this->response->header('Cloudflare-CDN-Cache-Control', 'public, max-age=604800');
+        $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
+        $this->response->header('X-LiteSpeed-Tag', 'unfurl-image');
+        $this->response->header('X-Cache-Optimizer', 'unfurl-image-derivative');
+        $this->response->removeCookie($this->response->getCookiePrefix() . 'csrf');
+    }
+
     /**
      * Detect a rendered XenForo error page (Reply\Error / Reply\Exception).
      *
@@ -997,19 +1128,21 @@ class CacheOptimizer
     public static function applyPageCacheTtl(\XF\PageCache $pageCache): void
     {
         try {
-            $threadId = self::parseThreadId($pageCache->getRequest()->getRoutePath());
-            if (!$threadId) {
-                return; // only thread pages get an extended store TTL in this pass
-            }
-
             $base = (int) $pageCache->getLifetime();
-            $ttl = self::threadPageStoreLifetime($threadId, $base);
+            $routePath = $pageCache->getRequest()->getRoutePath();
+            $threadId = self::parseThreadId($routePath);
+            $ttl = $threadId
+                ? self::threadPageStoreLifetime($threadId, $base)
+                : self::publicRouteStoreLifetime($routePath, $base);
+
             if ($ttl <= $base) {
-                return; // fresh / unknown age — keep the short default TTL
+                return; // keep the short default TTL
             }
 
             $pageCache->setLifetime($ttl);
-            self::registerThreadPageKey($threadId, $pageCache->getCacheId(), $ttl);
+            if ($threadId) {
+                self::registerThreadPageKey($threadId, $pageCache->getCacheId(), $ttl);
+            }
         } catch (\Throwable $e) {
             // Caching is best-effort; never break the request on optimizer logic.
         }
@@ -1021,6 +1154,48 @@ class CacheOptimizer
             return (int) $m[1];
         }
         return 0;
+    }
+
+    /**
+     * Store guest public listings longer than XF's flat 600s default so hot
+     * crawler/guest routes can be served from pre-bootstrap pagecache.php more
+     * often. These routes already receive public cache headers from this add-on.
+     */
+    protected static function publicRouteStoreLifetime($routePath, $base)
+    {
+        $routePath = trim((string) $routePath, '/');
+        if ($routePath === '') {
+            return $base;
+        }
+
+        $prefix = strtok($routePath, '/') ?: $routePath;
+        switch ($prefix) {
+            case 'tags':
+            case 'forums':
+            case 'members':
+            case 'media':
+            case 'resources':
+            case 'featured':
+            case 'recent-activity':
+                $ttl = 1800;
+                break;
+
+            case 'help':
+            case 'pages':
+                $ttl = self::PAGE_CACHE_MAX_STORE_LIFETIME;
+                break;
+
+            case 'whats-new':
+            case 'find-new':
+            case 'find-threads':
+                $ttl = 900;
+                break;
+
+            default:
+                return $base;
+        }
+
+        return max($base, min($ttl, self::PAGE_CACHE_MAX_STORE_LIFETIME));
     }
 
     /**
