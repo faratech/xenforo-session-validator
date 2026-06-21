@@ -41,6 +41,11 @@ class CacheOptimizer
         // Clear any existing cache headers
         $this->clearCacheHeaders();
 
+        if ($this->requestSetsPublicPreferenceCookie()) {
+            $this->setNoCacheForStateCookieRoute('_wfStyle');
+            return;
+        }
+
         // Never cache XenForo error pages. A Reply\Error renders the "An error
         // occurred while the page was being generated" page with HTTP 200 (XF
         // default), so a transient render failure on an otherwise-cacheable route
@@ -59,6 +64,11 @@ class CacheOptimizer
         // per-visitor and must never be publicly cached.
         if ($this->isAuthenticationRoute($routePath)) {
             $this->setNoCacheForAuthPages();
+            return;
+        }
+
+        if ($this->requestCarriesUserCookie()) {
+            $this->setNoCacheForUser();
             return;
         }
 
@@ -247,8 +257,17 @@ class CacheOptimizer
         }
 
         $this->clearCacheHeaders();
+        if ($this->requestSetsPublicPreferenceCookie()) {
+            $this->setNoCacheForStateCookieRoute('_wfStyle');
+            return false;
+        }
+
         if ($this->isAuthenticationRoute($routePath)) {
             $this->setNoCacheForAuthPages();
+            return false;
+        }
+        if ($this->requestCarriesUserCookie()) {
+            $this->setNoCacheForUser();
             return false;
         }
         $this->applyPathBasedHeaders($routePath);
@@ -482,6 +501,8 @@ class CacheOptimizer
         // Tell LiteSpeed to create separate cache entries per style/variation/language cookie.
         // Without this, all guests share one cache entry regardless of dark/light preference.
         $this->response->header('X-LiteSpeed-Vary', 'cookie=xf_style_variation, cookie=xf_style_id, cookie=xf_language_id');
+
+        $this->suppressPublicGuestCsrfCookie();
     }
 
     protected function getCacheDuration($optionId, $default)
@@ -558,6 +579,7 @@ class CacheOptimizer
             'login',
             'logout',
             'register',
+            'account-confirmation',
             'lost-password',
             'two-step',
             'oauth2',
@@ -567,8 +589,12 @@ class CacheOptimizer
             'find-threads',
             'watched',
             'email-stop',
+            'contact',
             'misc/accept-terms',
+            'misc/accept-privacy-policy',
+            'misc/cookies',
             'misc/contact',
+            'misc/language',
             'misc/style',
             'search/auto-complete'
         ];
@@ -580,6 +606,28 @@ class CacheOptimizer
         }
 
         return false;
+    }
+
+    protected function requestSetsPublicPreferenceCookie()
+    {
+        return $this->app->request()->exists('_wfStyle');
+    }
+
+    protected function requestCarriesUserCookie()
+    {
+        return (bool) $this->app->request()->getCookie('user');
+    }
+
+    protected function suppressPublicGuestCsrfCookie()
+    {
+        try {
+            $visitor = \XF::visitor();
+            if ($visitor && $visitor->user_id) {
+                return;
+            }
+            $this->response->removeCookie($this->response->getCookiePrefix() . 'csrf');
+        } catch (\Throwable $e) {
+        }
     }
 
     /**
@@ -1032,6 +1080,18 @@ class CacheOptimizer
 
         // Identify that these headers came from us
         $this->response->header('X-Cache-Optimizer', 'no-cache-auth');
+    }
+
+    protected function setNoCacheForStateCookieRoute($label)
+    {
+        $this->response->header('Cache-Control', 'private, no-cache, no-store, must-revalidate, max-age=0');
+        $this->response->header('Pragma', 'no-cache');
+        $this->response->header('Expires', '0');
+        $this->response->header('Vary', 'Cookie');
+        $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store, private');
+        $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
+        $this->response->header('X-LiteSpeed-Tag', 'state-cookie');
+        $this->response->header('X-Cache-Optimizer', 'no-cache-state-' . str_replace('/', '-', trim((string) $label, '/')));
     }
 
     protected function setCacheHeadersForUnfurlImage()
