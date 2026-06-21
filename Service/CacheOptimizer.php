@@ -46,6 +46,11 @@ class CacheOptimizer
             return;
         }
 
+        if ($this->isDynamicNoStoreRoute($routePath)) {
+            $this->setNoCacheForDynamicRoute($routePath);
+            return;
+        }
+
         // Never cache XenForo error pages. A Reply\Error renders the "An error
         // occurred while the page was being generated" page with HTTP 200 (XF
         // default), so a transient render failure on an otherwise-cacheable route
@@ -259,6 +264,11 @@ class CacheOptimizer
         $this->clearCacheHeaders();
         if ($this->requestSetsPublicPreferenceCookie()) {
             $this->setNoCacheForStateCookieRoute('_wfStyle');
+            return false;
+        }
+
+        if ($this->isDynamicNoStoreRoute($routePath)) {
+            $this->setNoCacheForDynamicRoute($routePath);
             return false;
         }
 
@@ -606,6 +616,15 @@ class CacheOptimizer
         }
 
         return false;
+    }
+
+    protected function isDynamicNoStoreRoute($routePath)
+    {
+        $routePath = trim((string) $routePath, '/');
+        $slashPos = strpos($routePath, '/');
+        $prefix = $slashPos !== false ? substr($routePath, 0, $slashPos) : $routePath;
+
+        return $prefix === 'webmcp';
     }
 
     protected function requestSetsPublicPreferenceCookie()
@@ -1080,6 +1099,18 @@ class CacheOptimizer
 
         // Identify that these headers came from us
         $this->response->header('X-Cache-Optimizer', 'no-cache-auth');
+    }
+
+    protected function setNoCacheForDynamicRoute($routePath)
+    {
+        $this->response->header('Cache-Control', 'private, no-cache, no-store, must-revalidate, max-age=0');
+        $this->response->header('Pragma', 'no-cache');
+        $this->response->header('Expires', '0');
+        $this->response->header('Vary', 'Cookie');
+        $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store, private');
+        $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
+        $this->response->header('X-LiteSpeed-Tag', 'dynamic');
+        $this->response->header('X-Cache-Optimizer', 'no-cache-' . str_replace('/', '-', trim((string) $routePath, '/')));
     }
 
     protected function setNoCacheForStateCookieRoute($label)
