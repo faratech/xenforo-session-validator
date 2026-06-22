@@ -10,7 +10,24 @@
                action="str_replace">
     <find><![CDATA[<meta charset="utf-8" />]]></find>
     <replace><![CDATA[<meta charset="utf-8" />
-<style>.block-container,.message-inner{contain:layout style}.p-body-sidebar .block{content-visibility:auto;contain-intrinsic-size:auto 300px;contain:layout style}[data-xf-lazy-slider]{overflow:hidden}</style>]]></replace>
+<style>.block-container,.message-inner{contain:layout style}.p-body-sidebar .block{content-visibility:auto;contain-intrinsic-size:auto 300px;contain:layout style}[data-xf-lazy-slider]{overflow:hidden}</style>
+<xf:if is="$xf.style.style_id == 40 OR $xf.style.style_id == 47"><style>@media(max-width:650px){.p-body-main .block--category:nth-of-type(n+3),.p-body-main .block--forumList .node:nth-of-type(n+12),.p-body-sidebar .block{content-visibility:auto;contain-intrinsic-size:auto 420px;contain:layout style}.p-body-main .block--category:first-of-type{content-visibility:visible}}</style></xf:if>]]></replace>
+  </modification>
+  <modification modification_key="wf_meta_pixel"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Meta Pixel base code (pixel 868064532441503)"
+               execution_order="8"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:if is="$xf.style.style_id == 40 OR $xf.style.style_id == 47">
+<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];function load(){if(load.done)return;load.done=!0;t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s);fbq('init','868064532441503');fbq('track','PageView')}function idle(){if('requestIdleCallback'in f)f.requestIdleCallback(load,{timeout:6000});else f.setTimeout(load,6000)}['pointerdown','keydown','touchstart','scroll'].forEach(function(x){f.addEventListener(x,load,{once:true,passive:true})});if(b.readyState==='complete')idle();else f.addEventListener('load',idle,{once:true})}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');</script><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=868064532441503&ev=PageView&noscript=1"/></noscript>
+<xf:else />
+<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','868064532441503');fbq('track','PageView');</script><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=868064532441503&ev=PageView&noscript=1"/></noscript>
+</xf:if>
+<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></replace>
   </modification>
   <modification modification_key="wf_variation_fix"
                addon_id="WindowsForum/SessionValidator"
@@ -34,7 +51,46 @@
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
-<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false">!function(){var p=document.documentElement.getAttribute("data-cookie-prefix")||"xf_",c=p+"ls=";if(document.cookie.indexOf(c)!==-1){document.cookie=c+";path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";var d=document.documentElement,dark=d.getAttribute("data-color-scheme")==="dark";d.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(dark?"#202122":"#eff5f6")+"!important";location.reload()}}()</script></xf:if>]]></replace>
+<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false">!function(){var p=document.documentElement.getAttribute("data-cookie-prefix")||"xf_",c=p+"ls=";if(document.cookie.indexOf(c)!==-1&&document.cookie.indexOf(p+"wf_capsule_member=1")===-1){document.cookie=c+";path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";var d=document.documentElement,dark=d.getAttribute("data-color-scheme")==="dark";d.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(dark?"#202122":"#eff5f6")+"!important";location.reload()}}()</script></xf:if>]]></replace>
+  </modification>
+  <modification modification_key="wf_capsule_hydrate"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Hydrate cached public shells for authenticated members"
+               execution_order="10"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false" defer src="/js/windowsforum/capsule/hydrate.js?v=3"></script></xf:if>]]></replace>
+  </modification>
+  <modification modification_key="wf_style47_resource_hints"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Style 47 mobile resource-hint trimming"
+               execution_order="10"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[    <link rel="preconnect" href="https://pagead2.googlesyndication.com">
+    <link rel="preconnect" href="https://www.googletagmanager.com">
+    <link rel="preconnect" href="https://data.windowsforum.com">
+    <link rel="preconnect" href="https://attachments.windowsforum.com">]]></find>
+    <replace><![CDATA[<xf:if is="$xf.style.style_id == 40 OR $xf.style.style_id == 47">
+    <link rel="preconnect" href="https://pagead2.googlesyndication.com">
+    <link rel="preconnect" href="https://data.windowsforum.com">
+    <link rel="dns-prefetch" href="//www.googletagmanager.com">
+    <link rel="dns-prefetch" href="//connect.facebook.net">
+    <xf:if is="$xf.reply.template == 'index' OR $xf.reply.template == 'forum_list' OR $xf.reply.template == 'forum_view'">
+      <link rel="preload" href="https://data.windowsforum.com/assets/nodebackground/sprite.webp" as="image" fetchpriority="high">
+    </xf:if>
+<xf:else />
+    <link rel="preconnect" href="https://pagead2.googlesyndication.com">
+    <link rel="preconnect" href="https://www.googletagmanager.com">
+    <link rel="preconnect" href="https://data.windowsforum.com">
+    <link rel="preconnect" href="https://attachments.windowsforum.com">
+</xf:if>]]></replace>
   </modification>
   <modification modification_key="wf_carousel_lazy_js"
                addon_id="WindowsForum/SessionValidator"
@@ -118,8 +174,12 @@ g+'"]'):0!==g&&e.push('.notice[data-notice-id="'+g+'"]');c&&p('.notice.notice--c
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<xf:if is="$xf.style.style_id == 40 OR $xf.style.style_id == 47">
+<script data-cfasync="false">!function(w,d){if(Math.random()>=0.1)return;function l(u,c){var s=d.createElement("script");s.src=u;s.async=!0;s.dataset.cfasync="false";s.onload=c||function(){};d.head.appendChild(s)}function r(){l("/js/windowsforum/rum/web-vitals.iife.js?v=5",function(){l("/js/windowsforum/rum/rum.js?v=1")})}function q(){if("requestIdleCallback"in w)requestIdleCallback(r,{timeout:5000});else setTimeout(r,2500)}if(d.prerendering)d.addEventListener("prerenderingchange",q,{once:!0});else if(d.readyState==="complete")q();else w.addEventListener("load",q,{once:!0})}(window,document);</script>
+<xf:else />
 <script data-cfasync="false" defer src="/js/windowsforum/rum/web-vitals.iife.js?v=5"></script>
-<script data-cfasync="false" defer src="/js/windowsforum/rum/rum.js?v=1"></script>]]></replace>
+<script data-cfasync="false" defer src="/js/windowsforum/rum/rum.js?v=1"></script>
+</xf:if>]]></replace>
   </modification>
   <modification modification_key="wf_speculation_rules"
                addon_id="WindowsForum/SessionValidator"

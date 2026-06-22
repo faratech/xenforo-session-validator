@@ -51,6 +51,11 @@ class CacheOptimizer
             return;
         }
 
+        if ($this->isSearchResultRequest($routePath)) {
+            $this->setNoCacheForDynamicRoute('search-result');
+            return;
+        }
+
         // Never cache XenForo error pages. A Reply\Error renders the "An error
         // occurred while the page was being generated" page with HTTP 200 (XF
         // default), so a transient render failure on an otherwise-cacheable route
@@ -72,6 +77,32 @@ class CacheOptimizer
             return;
         }
 
+        // Authenticated members opt into the per-session PRIVATE cache tier
+        // (httpjet --page-cache-private) for allowlisted 200 VIEW routes, and keep a
+        // hard no-cache for everything else. This MUST run before the bare-cookie
+        // no-cache below (which previously preempted it and kept the private tier
+        // permanently idle — disp_private=0) and before the guest redirect/error/public
+        // paths, so a member response is never routed into the SHARED cache.
+        if ($visitor->user_id) {
+            // A member WRITE into a thread invalidates that thread's cached copies — the
+            // public entry AND every session's private one, on both nodes (httpjet fans
+            // X-LiteSpeed-Purge out to its peer), so the member's own reply is never
+            // hidden behind their private entry's TTL.
+            if ($request->getRequestMethod() === 'post'
+                && preg_match('#^threads/[^/]+\.(\d+)(?:/|$)#', $routePath, $purgeMatch)
+            ) {
+                $this->response->header('X-LiteSpeed-Purge', 'tag=T' . $purgeMatch[1]);
+            }
+            if ($this->response->httpCode() === 200) {
+                $this->setPrivateCacheForUser($routePath);
+            } else {
+                $this->setNoCacheForUser();
+            }
+            return;
+        }
+
+        // A user (xf_user) cookie WITHOUT an authenticated session (an expired/invalid
+        // remember cookie) must never be public-cached.
         if ($this->requestCarriesUserCookie()) {
             $this->setNoCacheForUser();
             return;
@@ -92,28 +123,7 @@ class CacheOptimizer
 
         // 301/308 permanent redirects are highly cacheable (no DB query needed)
         if ($httpCode === 301 || $httpCode === 308) {
-            $this->setRedirectCacheHeaders($httpCode);
-            return;
-        }
-
-        // Check if user is authenticated — must run BEFORE error code check
-        // because a banned user's 403 is per-visitor and must never be public-cached.
-        if ($visitor->user_id) {
-            // A member WRITE into a thread invalidates that thread's cached copies —
-            // the public entry AND every session's private one, on both nodes
-            // (httpjet applies X-LiteSpeed-Purge from any response and fans it out
-            // to its peer). Without this the member's own just-posted reply could
-            // hide behind their private entry's TTL.
-            if ($request->getRequestMethod() === 'post'
-                && preg_match('#^threads/[^/]+\.(\d+)(?:/|$)#', $routePath, $purgeMatch)
-            ) {
-                $this->response->header('X-LiteSpeed-Purge', 'tag=T' . $purgeMatch[1]);
-            }
-            if ($httpCode === 200) {
-                $this->setPrivateCacheForUser($routePath);
-            } else {
-                $this->setNoCacheForUser();
-            }
+            $this->setRedirectCacheHeaders($httpCode, $routePath);
             return;
         }
 
@@ -171,7 +181,7 @@ class CacheOptimizer
 
             case 'forums':
                 if (preg_match('#^forums/[^/]+\.(\d+)(?:/|$)#', $routePath, $matches)) {
-                    $this->setForumCacheHeaders($matches[1]);
+                    $this->setForumCacheHeaders($matches[1], $routePath);
                 } else {
                     $this->setDefaultCacheHeaders();
                 }
@@ -216,7 +226,7 @@ class CacheOptimizer
 
             case 'tags':
                 if (preg_match('#^tags/([^/]+)#', $routePath, $matches)) {
-                    $this->setTagCacheHeaders($matches[1]);
+                    $this->setTagCacheHeaders($matches[1], $routePath);
                 } elseif (preg_match('#^tags/?$#', $routePath)) {
                     $this->setListingCacheHeaders('tag-index');
                 } else {
@@ -269,6 +279,11 @@ class CacheOptimizer
 
         if ($this->isDynamicNoStoreRoute($routePath)) {
             $this->setNoCacheForDynamicRoute($routePath);
+            return false;
+        }
+
+        if ($this->isSearchResultRequest($routePath)) {
+            $this->setNoCacheForDynamicRoute('search-result');
             return false;
         }
 
@@ -350,7 +365,13 @@ class CacheOptimizer
         $this->response->header('Cache-Control', 'private, max-age=0, must-revalidate');
         $this->response->header('Pragma', 'no-cache');
         $this->response->header('Expires', '0');
-        $this->response->header('Vary', 'Cookie');
+        // Deliberately NO `Vary: Cookie` here. httpjet's origin store only honors
+        // `Vary: Accept-Encoding`; any other Vary token (incl. Cookie) marks the entry
+        // under-keyed and the store is REFUSED — which silently kept the private tier
+        // empty. The per-session owner key already varies a private entry by session,
+        // and httpjet forces `private, no-store` on the served copy so a shared cache
+        // (Cloudflare) never stores it regardless. So Cookie-varying is both redundant
+        // and harmful here.
         $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store, private');
         $this->response->header('X-LiteSpeed-Cache-Control', 'private,max-age=60');
         // 'private' groups every private entry for an ops sweep (purge tag=private);
@@ -426,14 +447,28 @@ class CacheOptimizer
     /**
      * Set cache headers for forum listing pages (no SQL queries)
      */
-    protected function setForumCacheHeaders($forumId)
+    protected function setForumCacheHeaders($forumId, $routePath = '')
     {
+        if ($this->isAlwaysFreshForumRss((int) $forumId, $routePath)) {
+            $this->setNoCacheForAlwaysFreshForumRss((int) $forumId);
+            return;
+        }
+
         // Check if this is Windows News forum (ID 4) without SQL
         $extendedCacheNodes = $this->getExtendedCacheNodes();
         $isExtendedCache = in_array((int) $forumId, $extendedCacheNodes, true);
+        $page = $this->routePageNumber($routePath);
 
         // Forum listings get different cache based on forum ID
-        if ($isExtendedCache) {
+        if ($page >= 100) {
+            [$cacheTime, $edgeCache] = $isExtendedCache
+                ? $this->getCachePair('wfCacheOptimizer_extendedThread30Days', 2592000, 'wfCacheOptimizer_extendedThread30DaysEdgeCache', 7776000)
+                : $this->getCachePair('wfCacheOptimizer_thread30Days', 604800, 'wfCacheOptimizer_thread30DaysEdgeCache', 2592000);
+        } elseif ($page >= 10) {
+            [$cacheTime, $edgeCache] = $isExtendedCache
+                ? $this->getCachePair('wfCacheOptimizer_extendedThread7Days', 604800, 'wfCacheOptimizer_extendedThread7DaysEdgeCache', 1814400)
+                : $this->getCachePair('wfCacheOptimizer_thread7Days', 86400, 'wfCacheOptimizer_thread7DaysEdgeCache', 259200);
+        } elseif ($isExtendedCache) {
             $cacheTime = $this->options->wfCacheOptimizer_windowsNews ?? 3600;
             $edgeCache = $this->options->wfCacheOptimizer_windowsNewsEdgeCache ?? 7200;
         } else {
@@ -450,7 +485,29 @@ class CacheOptimizer
         }
 
         // Identify cache type for debugging
-        $this->response->header('X-Cache-Optimizer', $isExtendedCache ? 'forum-extended' : 'forum');
+        $label = $isExtendedCache ? 'forum-extended' : 'forum';
+        if ($page >= 10) {
+            $label .= '-archive-page-' . $page;
+        }
+        $this->response->header('X-Cache-Optimizer', $label);
+    }
+
+    protected function isAlwaysFreshForumRss($forumId, $routePath)
+    {
+        return in_array((int) $forumId, [4, 84], true)
+            && preg_match('#(?:^|/)index\.rss/?$#', (string) $routePath);
+    }
+
+    protected function setNoCacheForAlwaysFreshForumRss($forumId)
+    {
+        $this->response->header('Cache-Control', 'private, no-cache, no-store, must-revalidate, max-age=0');
+        $this->response->header('Pragma', 'no-cache');
+        $this->response->header('Expires', '0');
+        $this->response->header('Vary', 'Accept-Encoding');
+        $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store, private');
+        $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
+        $this->response->header('X-LiteSpeed-Tag', 'F' . (int) $forumId);
+        $this->response->header('X-Cache-Optimizer', 'no-cache-forum-rss-' . (int) $forumId);
     }
     
     /**
@@ -484,6 +541,8 @@ class CacheOptimizer
      */
     protected function setCacheControlHeaders($maxAge, $sMaxAge, $extraTag = null)
     {
+        $this->clearCacheHeaders();
+
         // Set standard cache control with stale-while-revalidate for better performance
         $staleTime = min($maxAge * 2, 86400); // Allow stale content for up to 2x cache time or 24h max
         // Scale stale-if-error with TTL: short-lived pages get short stale windows,
@@ -511,6 +570,8 @@ class CacheOptimizer
         // Tell LiteSpeed to create separate cache entries per style/variation/language cookie.
         // Without this, all guests share one cache entry regardless of dark/light preference.
         $this->response->header('X-LiteSpeed-Vary', 'cookie=xf_style_variation, cookie=xf_style_id, cookie=xf_language_id');
+        $this->response->header('X-WF-Capsule', "public-shell, hydrate=account-nav-v1, max-age=$sMaxAge");
+        $this->response->header('X-WF-Capsule-Tags', $tag);
 
         $this->suppressPublicGuestCsrfCookie();
     }
@@ -564,8 +625,12 @@ class CacheOptimizer
         $this->response->removeHeader('Pragma');
         $this->response->removeHeader('Expires');
         $this->response->removeHeader('Last-Modified');
+        $this->response->removeHeader('Vary');
         $this->response->removeHeader('X-LiteSpeed-Cache-Control');
         $this->response->removeHeader('X-LiteSpeed-Tag');
+        $this->response->removeHeader('X-WF-Capsule');
+        $this->response->removeHeader('X-WF-Capsule-Tags');
+        $this->response->removeHeader('CDN-Cache-Control');
         $this->response->removeHeader('Cloudflare-CDN-Cache-Control');
 
         // Also use PHP's header_remove for extra assurance
@@ -574,8 +639,12 @@ class CacheOptimizer
             @header_remove('Pragma');
             @header_remove('Expires');
             @header_remove('Last-Modified');
+            @header_remove('Vary');
             @header_remove('X-LiteSpeed-Cache-Control');
             @header_remove('X-LiteSpeed-Tag');
+            @header_remove('X-WF-Capsule');
+            @header_remove('X-WF-Capsule-Tags');
+            @header_remove('CDN-Cache-Control');
             @header_remove('Cloudflare-CDN-Cache-Control');
         }
     }
@@ -624,7 +693,40 @@ class CacheOptimizer
         $slashPos = strpos($routePath, '/');
         $prefix = $slashPos !== false ? substr($routePath, 0, $slashPos) : $routePath;
 
-        return $prefix === 'webmcp';
+        $dynamicPrefixes = [
+            'ai-options',
+            'api',
+            'automod',
+            'batch',
+            'builds',
+            'chat',
+            'chatpage',
+            'open-ai-moderation',
+            'react',
+            'spaminator',
+            'webmcp',
+            'wf-unfurl',
+        ];
+
+        return in_array($prefix, $dynamicPrefixes, true);
+    }
+
+    protected function isSearchResultRequest($routePath)
+    {
+        $routePath = trim((string) $routePath, '/');
+        if ($routePath === 'search') {
+            return $this->requestHasQueryString();
+        }
+
+        return strpos($routePath, 'search/') === 0;
+    }
+
+    protected function requestHasQueryString()
+    {
+        $uri = (string) $this->app->request()->getRequestUri();
+        $queryPos = strpos($uri, '?');
+
+        return $queryPos !== false && substr($uri, $queryPos + 1) !== '';
     }
 
     protected function requestSetsPublicPreferenceCookie()
@@ -647,6 +749,25 @@ class CacheOptimizer
             $this->response->removeCookie($this->response->getCookiePrefix() . 'csrf');
         } catch (\Throwable $e) {
         }
+    }
+
+    protected function responseSetsNonCsrfCookie()
+    {
+        try {
+            $cookies = $this->response->getCookiesExcept(['csrf'], true);
+            return !empty($cookies);
+        } catch (\Throwable $e) {
+            return true;
+        }
+    }
+
+    protected function routePageNumber($routePath)
+    {
+        if (preg_match('#(?:^|/)page-(\d+)(?:/|$)#', (string) $routePath, $m)) {
+            return max(1, (int) $m[1]);
+        }
+
+        return 1;
     }
 
     /**
@@ -878,18 +999,52 @@ class CacheOptimizer
      * Set cache headers for a specific tag page.
      * Uses forum-level TTLs + Last-Modified from xf_tag.last_use_date.
      */
-    protected function setTagCacheHeaders($tagSlug)
+    protected function setTagCacheHeaders($tagSlug, $routePath = '')
     {
         $cacheTime = $this->options->wfCacheOptimizer_forums ?? 900;
         $edgeCache = $this->options->wfCacheOptimizer_forumsEdgeCache ?? 1800;
-        $this->setCacheControlHeaders($cacheTime, $edgeCache);
 
         $tag = $this->getTag($tagSlug);
+        $age = ($tag && !empty($tag['last_use_date'])) ? (time() - (int) $tag['last_use_date']) : null;
+        $page = $this->routePageNumber($routePath);
+        if ($age !== null) {
+            $threshold1Day = $this->options->wfCacheOptimizer_ageThreshold1Day ?? 86400;
+            $threshold7Days = $this->options->wfCacheOptimizer_ageThreshold7Days ?? 604800;
+            $threshold30Days = $this->options->wfCacheOptimizer_ageThreshold30Days ?? 2592000;
+
+            if ($age < $threshold1Day) {
+                $cacheTime = $this->options->wfCacheOptimizer_forums ?? 900;
+                $edgeCache = $this->options->wfCacheOptimizer_forumsEdgeCache ?? 1800;
+            } elseif ($age < $threshold7Days) {
+                [$cacheTime, $edgeCache] = $page >= 2
+                    ? $this->getCachePair('wfCacheOptimizer_thread7Days', 86400, 'wfCacheOptimizer_thread7DaysEdgeCache', 259200)
+                    : $this->getCachePair('wfCacheOptimizer_thread1Day', 7200, 'wfCacheOptimizer_thread1DayEdgeCache', 21600);
+            } elseif ($age < $threshold30Days) {
+                [$cacheTime, $edgeCache] = $page >= 2
+                    ? $this->getCachePair('wfCacheOptimizer_thread30Days', 604800, 'wfCacheOptimizer_thread30DaysEdgeCache', 2592000)
+                    : $this->getCachePair('wfCacheOptimizer_thread7Days', 86400, 'wfCacheOptimizer_thread7DaysEdgeCache', 259200);
+            } else {
+                [$cacheTime, $edgeCache] = $this->getCachePair('wfCacheOptimizer_thread30Days', 604800, 'wfCacheOptimizer_thread30DaysEdgeCache', 2592000);
+            }
+        }
+
+        $cacheTags = [self::tagSlugPurgeTag($tagSlug)];
+        if ($tag && !empty($tag['tag_id'])) {
+            $cacheTags[] = self::tagIdPurgeTag((int) $tag['tag_id']);
+        }
+
+        $this->setCacheControlHeaders($cacheTime, $edgeCache, implode(', ', array_filter($cacheTags)));
+
         if ($tag && $tag['last_use_date']) {
             $this->setLastModifiedHeader($tag['last_use_date']);
         }
 
-        $this->response->header('X-Cache-Optimizer', 'tag');
+        $ageLabel = $age === null ? 'unknown' : round($age / 86400, 1) . 'd';
+        $label = 'tag-' . $ageLabel;
+        if ($page >= 2) {
+            $label .= '-page-' . $page;
+        }
+        $this->response->header('X-Cache-Optimizer', $label);
     }
 
     /**
@@ -963,6 +1118,11 @@ class CacheOptimizer
      */
     protected function setTemporaryRedirectCacheHeaders($httpCode, $routePath)
     {
+        if ($this->responseSetsNonCsrfCookie()) {
+            $this->setNoCacheForRedirect($httpCode);
+            return;
+        }
+
         if (preg_match('#^whats-new/posts/?$#', $routePath)) {
             // This pointer can change quickly on an active site.
             $maxAge = 30;
@@ -1052,14 +1212,27 @@ class CacheOptimizer
      * Set cache headers for permanent redirects (301/308)
      * These are immutable and can be cached aggressively without a DB query.
      */
-    protected function setRedirectCacheHeaders($httpCode)
+    protected function setRedirectCacheHeaders($httpCode, $routePath = '')
     {
-        // Cache permanent redirects for 1 day browser / 7 days edge
-        $maxAge = 86400;
-        $sMaxAge = 604800;
+        if ($this->responseSetsNonCsrfCookie()) {
+            $this->setNoCacheForRedirect($httpCode);
+            return;
+        }
+
+        if (preg_match('#^threads/[^/]+\.\d+/post-\d+/?$#', (string) $routePath)) {
+            $maxAge = 604800;
+            $sMaxAge = 2592000;
+            $label = 'redirect-thread-post-' . $httpCode;
+        } else {
+            // Cache permanent redirects for 1 day browser / 7 days edge
+            $maxAge = 86400;
+            $sMaxAge = 604800;
+            $label = 'redirect-' . $httpCode;
+        }
+
         $this->setCacheControlHeaders($maxAge, $sMaxAge);
 
-        $this->response->header('X-Cache-Optimizer', 'redirect-' . $httpCode);
+        $this->response->header('X-Cache-Optimizer', $label);
     }
 
     /**
@@ -1127,24 +1300,59 @@ class CacheOptimizer
 
     protected function setCacheHeadersForUnfurlImage()
     {
-        $this->response->removeHeader('Pragma');
-        $this->response->removeHeader('Expires');
-        $this->response->removeHeader('X-LiteSpeed-Cache-Control');
-        $this->response->removeHeader('X-LiteSpeed-Tag');
+        $httpCode = $this->response->httpCode();
+        if (in_array($httpCode, [301, 302, 303, 307, 308], true)) {
+            if (!$this->isCacheableUnfurlImageRedirect()) {
+                $this->setNoCacheForRedirect($httpCode);
+                return;
+            }
 
-        if (!headers_sent()) {
-            @header_remove('Pragma');
-            @header_remove('Expires');
-            @header_remove('X-LiteSpeed-Cache-Control');
-            @header_remove('X-LiteSpeed-Tag');
+            $this->setUnfurlImagePublicHeaders('unfurl-image-redirect');
+            return;
         }
 
+        $this->setUnfurlImagePublicHeaders('unfurl-image-derivative');
+    }
+
+    protected function setUnfurlImagePublicHeaders($label)
+    {
+        $this->clearCacheHeaders();
         $this->response->header('Cache-Control', 'public, max-age=604800, immutable');
         $this->response->header('Cloudflare-CDN-Cache-Control', 'public, max-age=604800');
+        $this->response->header('Vary', 'Accept-Encoding');
         $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
         $this->response->header('X-LiteSpeed-Tag', 'unfurl-image');
-        $this->response->header('X-Cache-Optimizer', 'unfurl-image-derivative');
+        $this->response->header('X-Cache-Optimizer', $label);
         $this->response->removeCookie($this->response->getCookiePrefix() . 'csrf');
+    }
+
+    protected function isCacheableUnfurlImageRedirect()
+    {
+        if ($this->responseSetsNonCsrfCookie()) {
+            return false;
+        }
+
+        $query = parse_url((string) $this->app->request()->getRequestUri(), PHP_URL_QUERY);
+        parse_str(is_string($query) ? $query : '', $params);
+        if (empty($params['id']) || empty($params['v'])) {
+            return false;
+        }
+
+        $location = $this->response->header('Location');
+        if (!is_string($location) || $location === '') {
+            return false;
+        }
+
+        $parts = parse_url($location);
+        if (!$parts || empty($parts['path']) || $parts['path'] !== '/proxy.php') {
+            return false;
+        }
+        if (!empty($parts['host']) && !preg_match('/(^|\.)windowsforum\.com$/i', $parts['host'])) {
+            return false;
+        }
+
+        parse_str($parts['query'] ?? '', $targetParams);
+        return !empty($targetParams['image']) && !empty($targetParams['hash']);
     }
 
     /**
@@ -1222,9 +1430,14 @@ class CacheOptimizer
             $base = (int) $pageCache->getLifetime();
             $routePath = $pageCache->getRequest()->getRoutePath();
             $threadId = self::parseThreadId($routePath);
-            $ttl = $threadId
-                ? self::threadPageStoreLifetime($threadId, $base)
-                : self::publicRouteStoreLifetime($routePath, $base);
+            $tagSlug = $threadId ? '' : self::parseTagSlug($routePath);
+            if ($threadId) {
+                $ttl = self::threadPageStoreLifetime($threadId, $base);
+            } elseif ($tagSlug !== '') {
+                $ttl = self::tagPageStoreLifetime($tagSlug, $base);
+            } else {
+                $ttl = self::publicRouteStoreLifetime($routePath, $base);
+            }
 
             if ($ttl <= $base) {
                 return; // keep the short default TTL
@@ -1233,6 +1446,8 @@ class CacheOptimizer
             $pageCache->setLifetime($ttl);
             if ($threadId) {
                 self::registerThreadPageKey($threadId, $pageCache->getCacheId(), $ttl);
+            } elseif ($tagSlug !== '') {
+                self::registerTagPageKey($tagSlug, $pageCache->getCacheId(), $ttl);
             }
         } catch (\Throwable $e) {
             // Caching is best-effort; never break the request on optimizer logic.
@@ -1245,6 +1460,15 @@ class CacheOptimizer
             return (int) $m[1];
         }
         return 0;
+    }
+
+    protected static function parseTagSlug($routePath)
+    {
+        if (preg_match('#^tags/([^/?]+)(?:/|$)#', (string) $routePath, $m)) {
+            return rawurldecode($m[1]);
+        }
+
+        return '';
     }
 
     /**
@@ -1321,6 +1545,21 @@ class CacheOptimizer
         return max($base, min($ttl, self::PAGE_CACHE_MAX_STORE_LIFETIME));
     }
 
+    protected static function tagPageStoreLifetime($tagSlug, $base)
+    {
+        $row = self::fetchTagRowStatic($tagSlug);
+        if (!$row || empty($row['last_use_date'])) {
+            return max($base, min(1800, self::PAGE_CACHE_MAX_STORE_LIFETIME));
+        }
+
+        $age = \XF::$time - (int) $row['last_use_date'];
+        $threshold1Day = (int) (\XF::options()->wfCacheOptimizer_ageThreshold1Day ?? 86400);
+
+        $ttl = $age < $threshold1Day ? 1800 : self::PAGE_CACHE_MAX_STORE_LIFETIME;
+
+        return max($base, min($ttl, self::PAGE_CACHE_MAX_STORE_LIFETIME));
+    }
+
     /**
      * Single-row, cache-first thread fetch sharing the exact key + query of the
      * instance getThread() so both paths reuse one cached row (and one
@@ -1354,6 +1593,88 @@ class CacheOptimizer
         return $row ?: null;
     }
 
+    protected static function fetchTagRowStatic($tagSlugOrId)
+    {
+        $isId = is_int($tagSlugOrId) || ctype_digit((string) $tagSlugOrId);
+        $cachePart = $isId
+            ? 'id:' . (int) $tagSlugOrId
+            : 'slug:' . preg_replace('/[^a-z0-9-]/i', '', (string) $tagSlugOrId);
+        $cache = \XF::app()->cache();
+        $key = 'wf_co:tag_static:' . $cachePart;
+
+        if ($cache) {
+            $row = $cache->fetch($key);
+            if ($row !== false) {
+                return $row ?: null;
+            }
+        }
+
+        try {
+            if ($isId) {
+                $row = \XF::db()->fetchRow(
+                    'SELECT tag_id, tag_url, last_use_date FROM xf_tag WHERE tag_id = ?',
+                    (int) $tagSlugOrId
+                );
+            } else {
+                $row = \XF::db()->fetchRow(
+                    'SELECT tag_id, tag_url, last_use_date FROM xf_tag WHERE tag_url = ?',
+                    (string) $tagSlugOrId
+                );
+            }
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if ($row && $cache) {
+            $cache->save($key, $row, 600);
+            $cache->save('wf_co:tag_static:id:' . (int) $row['tag_id'], $row, 600);
+            $cache->save('wf_co:tag_static:slug:' . preg_replace('/[^a-z0-9-]/i', '', (string) $row['tag_url']), $row, 600);
+        }
+
+        return $row ?: null;
+    }
+
+    public static function tagSlugPurgeTag($tagSlug)
+    {
+        $tagSlug = strtolower(trim(rawurldecode((string) $tagSlug), '/'));
+        if ($tagSlug === '') {
+            return '';
+        }
+
+        return 'TS' . substr(sha1($tagSlug), 0, 16);
+    }
+
+    public static function tagIdPurgeTag($tagId)
+    {
+        $tagId = (int) $tagId;
+
+        return $tagId > 0 ? 'TG' . $tagId : '';
+    }
+
+    protected static function tagSlugIndexKey($tagSlug)
+    {
+        $tag = self::tagSlugPurgeTag($tagSlug);
+
+        return $tag ? 'wf_pcidx:tag_slug:' . substr($tag, 2) : '';
+    }
+
+    protected static function tagIdIndexKey($tagId)
+    {
+        $tagId = (int) $tagId;
+
+        return $tagId > 0 ? 'wf_pcidx:tag:' . $tagId : '';
+    }
+
+    protected static function registerPageCacheIndex($indexKey, $cacheId, $ttl, \Redis $redis)
+    {
+        if (!$indexKey || !$cacheId) {
+            return;
+        }
+
+        $redis->sAdd($indexKey, $cacheId);
+        $redis->expire($indexKey, (int) $ttl + 86400);
+    }
+
     /**
      * Record a cached thread-page key in the thread's purge index (DB1 set) so
      * purgePageCacheForThread() can drop every cached variant (page N, style,
@@ -1372,10 +1693,37 @@ class CacheOptimizer
 
         try {
             $redis->select(self::PAGE_CACHE_REDIS_DB);
-            $idx = 'wf_pcidx:t:' . (int) $threadId;
-            $redis->sAdd($idx, $cacheId);
-            // Outlive the page entries it tracks so a later reply still finds them.
-            $redis->expire($idx, (int) $ttl + 86400);
+            self::registerPageCacheIndex('wf_pcidx:t:' . (int) $threadId, $cacheId, $ttl, $redis);
+        } catch (\Throwable $e) {
+        } finally {
+            try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+
+        try {
+            GenericShellFragment::purgeByTag('T' . $threadId);
+        } catch (\Throwable $e) {
+        }
+    }
+
+    protected static function registerTagPageKey($tagSlug, $cacheId, $ttl)
+    {
+        if (!$cacheId) {
+            return;
+        }
+
+        $redis = \WindowsForum\SharedRedis::raw();
+        if (!$redis) {
+            return;
+        }
+
+        try {
+            $redis->select(self::PAGE_CACHE_REDIS_DB);
+            self::registerPageCacheIndex(self::tagSlugIndexKey($tagSlug), $cacheId, $ttl, $redis);
+
+            $tag = self::fetchTagRowStatic($tagSlug);
+            if ($tag && !empty($tag['tag_id'])) {
+                self::registerPageCacheIndex(self::tagIdIndexKey((int) $tag['tag_id']), $cacheId, $ttl, $redis);
+            }
         } catch (\Throwable $e) {
         } finally {
             try { $redis->select(0); } catch (\Throwable $e) {}
@@ -1415,6 +1763,106 @@ class CacheOptimizer
         } catch (\Throwable $e) {
         } finally {
             try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+    }
+
+    public static function purgePageCacheForTags($tagIdsOrSlugs)
+    {
+        if (!$tagIdsOrSlugs) {
+            return;
+        }
+
+        foreach ((array) $tagIdsOrSlugs as $tagIdOrSlug) {
+            self::purgePageCacheForTag($tagIdOrSlug);
+        }
+    }
+
+    public static function purgePageCacheForTag($tagIdOrSlug)
+    {
+        if ($tagIdOrSlug === null || $tagIdOrSlug === '') {
+            return;
+        }
+
+        $isId = ctype_digit((string) $tagIdOrSlug);
+        $tag = self::fetchTagRowStatic($tagIdOrSlug);
+        $indexKeys = [];
+        if ($isId) {
+            $indexKeys[] = self::tagIdIndexKey((int) $tagIdOrSlug);
+        }
+        if ($tag && !empty($tag['tag_id'])) {
+            $indexKeys[] = self::tagIdIndexKey((int) $tag['tag_id']);
+            $indexKeys[] = self::tagSlugIndexKey((string) $tag['tag_url']);
+        } elseif (!$isId) {
+            $indexKeys[] = self::tagSlugIndexKey((string) $tagIdOrSlug);
+        }
+
+        $indexKeys = array_filter(array_unique($indexKeys));
+        if (!$indexKeys) {
+            return;
+        }
+
+        $redis = \WindowsForum\SharedRedis::raw();
+        if (!$redis) {
+            return;
+        }
+
+        try {
+            $redis->select(self::PAGE_CACHE_REDIS_DB);
+            $rawKeys = [];
+            foreach ($indexKeys as $idx) {
+                $cacheIds = $redis->sMembers($idx);
+                foreach ($cacheIds ?: [] as $cacheId) {
+                    $rawKeys[] = 'xf:' . $cacheId;
+                }
+            }
+            if ($rawKeys) {
+                $redis->del(array_values(array_unique($rawKeys)));
+            }
+            $redis->del($indexKeys);
+        } catch (\Throwable $e) {
+        } finally {
+            try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+
+        $shellTags = [];
+        if ($isId) {
+            $shellTags[] = self::tagIdPurgeTag((int) $tagIdOrSlug);
+        }
+        if ($tag && !empty($tag['tag_id'])) {
+            $shellTags[] = self::tagIdPurgeTag((int) $tag['tag_id']);
+            $shellTags[] = self::tagSlugPurgeTag((string) $tag['tag_url']);
+        } elseif (!$isId) {
+            $shellTags[] = self::tagSlugPurgeTag((string) $tagIdOrSlug);
+        }
+        try {
+            GenericShellFragment::purgeByTags(array_filter(array_unique($shellTags)));
+        } catch (\Throwable $e) {
+        }
+
+        self::deleteTagHeaderCache($tagIdOrSlug, $tag);
+    }
+
+    protected static function deleteTagHeaderCache($tagIdOrSlug, $tag = null)
+    {
+        $cache = \XF::app()->cache();
+        if (!$cache) {
+            return;
+        }
+
+        try {
+            if (ctype_digit((string) $tagIdOrSlug)) {
+                $cache->delete('wf_co:tag_static:id:' . (int) $tagIdOrSlug);
+            } else {
+                $cache->delete('wf_co:tag:' . preg_replace('/[^a-z0-9-]/i', '', (string) $tagIdOrSlug));
+                $cache->delete('wf_co:tag_static:slug:' . preg_replace('/[^a-z0-9-]/i', '', (string) $tagIdOrSlug));
+            }
+
+            if ($tag) {
+                $cache->delete('wf_co:tag:' . preg_replace('/[^a-z0-9-]/i', '', (string) $tag['tag_url']));
+                $cache->delete('wf_co:tag_static:id:' . (int) $tag['tag_id']);
+                $cache->delete('wf_co:tag_static:slug:' . preg_replace('/[^a-z0-9-]/i', '', (string) $tag['tag_url']));
+            }
+        } catch (\Throwable $e) {
         }
     }
 }

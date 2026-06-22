@@ -34,6 +34,13 @@ curl -sI "https://windowsforum.com/threads/some-thread.123/?_nc=$(date +%s)" | g
 
 ## Architecture
 
+### Generic Shell Capsule
+
+The no-bootstrap generic shell/capsule path is documented in
+[`GENERIC-SHELL.md`](GENERIC-SHELL.md). Read it before changing `pagecache.php`,
+`Service/GenericShellFragment.php`, `Service/CapsuleSnapshot.php`, `wf-capsule.php`, or
+`js/windowsforum/capsule/hydrate.js`.
+
 ### Request Lifecycle (Event Listeners -> `Listener.php`)
 
 The addon hooks into five XenForo events, registered in `_data/code_event_listeners.xml`:

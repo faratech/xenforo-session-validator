@@ -147,6 +147,8 @@ class Listener
         {
             return;
         }
+
+        Service\CapsuleSnapshot::publishFromApp($app, $response);
         
         // Check if cache optimization is enabled
         if (!self::isCacheOptimizerEnabled())
@@ -167,6 +169,7 @@ class Listener
         // Initialize and run the cache optimizer
         $optimizer = new Service\CacheOptimizer();
         $optimizer->setCacheHeaders();
+        Service\GenericShellFragment::publishFromApp($app, $response);
 
         // Meta Conversions API — server-side PageView supplement (fires after response flush)
         if ($httpCode === 200)

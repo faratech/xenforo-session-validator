@@ -17,6 +17,7 @@ class LogoutController extends XFCP_LogoutController
             // Using try/finally ensures the cookie is cleared even if the parent
             // throws (e.g., CSRF validation failure).
             $this->app->response()->setCookie('ls', false);
+            \WindowsForum\SessionValidator\Service\CapsuleSnapshot::clearCookies($this->app->response());
         }
 
         return $reply;

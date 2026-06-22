@@ -54,6 +54,7 @@ class LiveNewsCachePurge extends AbstractJob
                 continue;
             }
 
+            \WindowsForum\SessionValidator\Service\GenericShellFragment::purgeByTag($tag);
             @exec("curl -s -m 2 'http://127.0.0.1/lscache_purge.php?tag={$tag}' -H {$hostArg} > /dev/null 2>&1 &");
         }
     }

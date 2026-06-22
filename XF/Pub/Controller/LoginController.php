@@ -49,5 +49,6 @@ class LoginController extends XFCP_LoginController
         // Expires after 700s — slightly longer than max-age=600 so all
         // stale browser cache entries will have expired by then.
         $this->app->response()->setCookie('ls', '1', 700, null, false);
+        \WindowsForum\SessionValidator\Service\CapsuleSnapshot::publishFromApp($this->app, $this->app->response(), true);
     }
 }

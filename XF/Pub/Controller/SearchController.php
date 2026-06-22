@@ -23,9 +23,11 @@ class SearchController extends XFCP_SearchController
 
     protected const SEARCH_CACHE_KEY = 'wf_search:canonical';
     protected const SEARCH_CACHE_TTL = 3600;
+    protected const SEARCH_STATS_KEY = 'wf_search:stats';
     protected const RATE_LIMIT_KEY_PREFIX = 'wf_search:rate:';
     protected const RATE_LIMIT_WINDOW = 60;
     protected const RATE_LIMIT_MAX_PER_IP = 10;
+    protected const MIN_AUTO_COMPLETE_KEYWORD_LENGTH = 2;
 
     /**
      * Skip CSRF validation for guests so Cloudflare managed challenges work.
@@ -48,13 +50,55 @@ class SearchController extends XFCP_SearchController
      */
     public function actionSearch()
     {
+        if ($this->request->exists('from_search_menu'))
+        {
+            return parent::actionSearch();
+        }
+
+        $this->assertNotEmbeddedImageRequest();
+
         if (\XF::visitor()->user_id === 0)
         {
             $redis = $this->getSearchRedis();
-            if ($redis && $this->isGuestSearchRateLimited($redis))
+
+            $input = $this->getSearchInput();
+            $query = $this->prepareSearchQuery($input, $constraints);
+            $cacheField = $this->getSearchCacheField($query);
+
+            if ($redis)
             {
-                return $this->message(\XF::phrase('wf_search_rate_limited'));
+                $cachedReply = $this->getCachedGuestSearchRedirect($redis, $cacheField);
+                if ($cachedReply)
+                {
+                    $this->recordSearchStat($redis, 'action_search_cache_hit');
+                    return $cachedReply;
+                }
+
+                if ($this->isGuestSearchRateLimited($redis))
+                {
+                    $this->recordSearchStat($redis, 'action_search_rate_limited');
+                    return $this->message(\XF::phrase('wf_search_rate_limited'));
+                }
             }
+
+            $searchPlugin = $this->plugin(\XF\ControllerPlugin\SearchPlugin::class);
+            $searchPlugin->assertValidSearchQuery($query);
+
+            $searchRepo = $this->repository(\XF\Repository\SearchRepository::class);
+            $search = $searchRepo->runSearch($query, $constraints);
+
+            if (!$search)
+            {
+                return $this->message(\XF::phrase('no_results_found'));
+            }
+
+            if ($redis)
+            {
+                $this->cacheGuestSearchRedirect($redis, $cacheField, $search->search_id);
+                $this->recordSearchStat($redis, 'action_search_cache_store');
+            }
+
+            return $this->redirect($this->buildLink('search', $search), '');
         }
 
         return parent::actionSearch();
@@ -95,22 +139,17 @@ class SearchController extends XFCP_SearchController
         // Check Redis for a canonical search_id for this query
         if ($redis)
         {
-            $cachedId = $redis->hGet(self::SEARCH_CACHE_KEY, $cacheField);
-            if ($cachedId)
+            $cachedReply = $this->getCachedGuestSearchRedirect($redis, $cacheField);
+            if ($cachedReply)
             {
-                // Verify it still exists in DB
-                $cachedSearch = $this->em()->find(Search::class, (int) $cachedId);
-                if ($cachedSearch)
-                {
-                    return $this->redirect($this->buildLink('search', $cachedSearch), '');
-                }
-                // Stale entry — remove it
-                $redis->hDel(self::SEARCH_CACHE_KEY, $cacheField);
+                $this->recordSearchStat($redis, 'results_cache_hit');
+                return $cachedReply;
             }
 
             // Per-IP rate limit: prevent any single source from hammering ES
             if ($this->isGuestSearchRateLimited($redis))
             {
+                $this->recordSearchStat($redis, 'results_rate_limited');
                 return $this->message(\XF::phrase('wf_search_rate_limited'));
             }
         }
@@ -130,11 +169,43 @@ class SearchController extends XFCP_SearchController
         // Cache the canonical search_id in Redis for future requests
         if ($redis)
         {
-            $redis->hSet(self::SEARCH_CACHE_KEY, $cacheField, $search->search_id);
-            $redis->expire(self::SEARCH_CACHE_KEY, self::SEARCH_CACHE_TTL);
+            $this->cacheGuestSearchRedirect($redis, $cacheField, $search->search_id);
+            $this->recordSearchStat($redis, 'results_cache_store');
         }
 
         return $this->redirect($this->buildLink('search', $search), '');
+    }
+
+    public function actionAutoComplete(ParameterBag $params): AbstractReply
+    {
+        if (\XF::visitor()->user_id === 0)
+        {
+            $input = $this->getSearchInput();
+            $keywords = trim((string) ($input['keywords'] ?? ''));
+            if ($keywords === '')
+            {
+                $keywords = trim((string) $this->filter('q', 'str'));
+            }
+
+            if ($keywords === '' || \XF\Util\Str::strlen($keywords) < self::MIN_AUTO_COMPLETE_KEYWORD_LENGTH)
+            {
+                $redis = $this->getSearchRedis();
+                if ($redis)
+                {
+                    $this->recordSearchStat($redis, 'autocomplete_short_circuit');
+                }
+
+                $this->app->response()->header('Cache-Control', 'private, no-cache, no-store, max-age=0');
+                $this->app->response()->header('Cloudflare-CDN-Cache-Control', 'no-store');
+
+                return $this->view('XF:Search\AutoComplete', '', [
+                    'results' => [],
+                    'q' => $keywords,
+                ]);
+            }
+        }
+
+        return parent::actionAutoComplete($params);
     }
 
     /**
@@ -186,6 +257,52 @@ class SearchController extends XFCP_SearchController
         }
 
         return $current > self::RATE_LIMIT_MAX_PER_IP;
+    }
+
+    protected function getSearchCacheField($query): string
+    {
+        $queryHash = $query->getUniqueQueryHash();
+        $searchType = $query->getHandlerType() ?: '';
+
+        return $queryHash . ':' . $searchType;
+    }
+
+    protected function getCachedGuestSearchRedirect(\Redis $redis, string $cacheField): ?AbstractReply
+    {
+        $cachedId = $redis->hGet(self::SEARCH_CACHE_KEY, $cacheField);
+        if (!$cachedId)
+        {
+            return null;
+        }
+
+        $cachedSearch = $this->em()->find(Search::class, (int) $cachedId);
+        if ($cachedSearch)
+        {
+            return $this->redirect($this->buildLink('search', $cachedSearch), '');
+        }
+
+        $redis->hDel(self::SEARCH_CACHE_KEY, $cacheField);
+        $this->recordSearchStat($redis, 'stale_canonical_removed');
+
+        return null;
+    }
+
+    protected function cacheGuestSearchRedirect(\Redis $redis, string $cacheField, int $searchId): void
+    {
+        $redis->hSet(self::SEARCH_CACHE_KEY, $cacheField, $searchId);
+        $redis->expire(self::SEARCH_CACHE_KEY, self::SEARCH_CACHE_TTL);
+    }
+
+    protected function recordSearchStat(\Redis $redis, string $field): void
+    {
+        try
+        {
+            $redis->hIncrBy(self::SEARCH_STATS_KEY, $field, 1);
+            $redis->expire(self::SEARCH_STATS_KEY, 86400);
+        }
+        catch (\Exception $e)
+        {
+        }
     }
 
     /** @var \Redis|null */
