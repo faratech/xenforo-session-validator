@@ -45,7 +45,7 @@ class Thread extends XFCP_Thread
             return true;
         }
 
-        foreach (['last_post_date', 'node_id', 'discussion_state', 'sticky', 'title', 'prefix_id'] as $field) {
+        foreach (['last_post_date', 'node_id', 'discussion_state', 'discussion_type', 'sticky', 'title', 'prefix_id'] as $field) {
             if ($this->isChanged($field)) {
                 return true;
             }

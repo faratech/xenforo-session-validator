@@ -29,6 +29,10 @@ class CacheOptimizer
             return;
         }
 
+        // Keep the pre-bootstrap pagecache.php reader's default style/language/cache
+        // version in sync with the live options (it can't call \XF::options()).
+        self::syncPagecacheKeyDefaults();
+
         $visitor = \XF::visitor();
         $request = $this->app->request();
         $routePath = $request->getRoutePath();
@@ -1676,6 +1680,57 @@ class CacheOptimizer
     }
 
     /**
+     * Keep the pre-bootstrap reader (pagecache.php) in sync with the live default
+     * style/language and XF page-cache version. pagecache.php runs before XF boots
+     * so it cannot call \XF::options(); it reads these from an opcache-cached
+     * generated file instead. The WRITERS of the page-cache key (XF\PageCache, the
+     * config.php cacheIdGenerator, and GenericShellFragment) read defaultStyleId /
+     * defaultLanguageId from live admin options, while the page-cache version is the
+     * compile-time \XF\PageCache::CACHE_VERSION constant (changes only on XF upgrade);
+     * a drift in any of the three silently zeroes the L0 cache for default-style guests.
+     * Write-if-changed, guarded by a per-worker static so it is a no-op after the
+     * first call within a worker's lifetime.
+     */
+    protected static function syncPagecacheKeyDefaults(): void
+    {
+        static $synced = null;
+
+        try {
+            $options = \XF::options();
+            $styleId = (int) ($options->defaultStyleId ?? 40);
+            $languageId = (int) ($options->defaultLanguageId ?? 1);
+            $cacheVersion = (int) \XF\PageCache::CACHE_VERSION;
+        } catch (\Throwable $e) {
+            return;
+        }
+
+        if ($styleId < 1) { $styleId = 40; }
+        if ($languageId < 1) { $languageId = 1; }
+        if ($cacheVersion < 1) { $cacheVersion = 1; }
+
+        $sig = $styleId . ':' . $languageId . ':' . $cacheVersion;
+        if ($synced === $sig) {
+            return;
+        }
+        $synced = $sig;
+
+        $file = \XF::getRootDirectory() . '/internal_data/wf_pagecache_keydefaults.php';
+        $expected = "<?php return [{$styleId}, {$languageId}, {$cacheVersion}];\n";
+        if (@file_get_contents($file) === $expected) {
+            return;
+        }
+
+        $tmp = $file . '.' . getmypid() . '.tmp';
+        if (@file_put_contents($tmp, $expected, LOCK_EX) !== false) {
+            if (!@rename($tmp, $file)) {
+                @unlink($tmp);
+            } else if (function_exists('opcache_invalidate')) {
+                @opcache_invalidate($file, true);
+            }
+        }
+    }
+
+    /**
      * Record a cached thread-page key in the thread's purge index (DB1 set) so
      * purgePageCacheForThread() can drop every cached variant (page N, style,
      * variation, language, consent) on the next write to the thread.
@@ -1699,10 +1754,13 @@ class CacheOptimizer
             try { $redis->select(0); } catch (\Throwable $e) {}
         }
 
-        try {
-            GenericShellFragment::purgeByTag('T' . $threadId);
-        } catch (\Throwable $e) {
-        }
+        // NOTE: do NOT purge the thread's generic shell here. registerThreadPageKey()
+        // runs at XF PageCache build time on every cacheable guest request (HITs too),
+        // so purging the shell on render would churn a still-valid L0 entry (and the
+        // stale-serve path short-circuits XF before a render could re-purge anyway).
+        // Edit-time shell invalidation is handled by the Thread/Post entity hooks ->
+        // LiveNewsCacheInvalidator::flushInternalCache() -> purgePageCacheForThread(),
+        // which purges the wf_gs:T<id> shell for every thread (news and non-news).
     }
 
     protected static function registerTagPageKey($tagSlug, $cacheId, $ttl)
@@ -1763,6 +1821,18 @@ class CacheOptimizer
         } catch (\Throwable $e) {
         } finally {
             try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+
+        // Also purge the thread's generic shell (a separate Redis layer, wf_gs:v1:*
+        // indexed under tag T<id>). This is invoked from
+        // LiveNewsCacheInvalidator::flushInternalCache() on every thread/post
+        // save/edit/delete regardless of news status, so it is the edit-time shell
+        // invalidation for ALL threads — without it a stale shell keeps being served
+        // (and masks this page-cache purge, since pagecache.php serves a stale shell
+        // and exits before XF can re-render). Mirrors purgePageCacheForTag().
+        try {
+            GenericShellFragment::purgeByTag('T' . $threadId);
+        } catch (\Throwable $e) {
         }
     }
 

@@ -147,9 +147,13 @@ the cache optimizer:
 - `TG{id}` tag id
 - `public` sweep group
 
-Thread and tag purges call `GenericShellFragment::purgeByTag()` / `purgeByTags()`.
-Live-news purges also delete shell fragments for `H`, `WN`, `F{id}`, and `T{id}` before
-calling the LiteSpeed purge endpoint.
+Edit-time invalidation runs for every thread/post save/edit/delete via the Thread/Post
+entity hooks -> `LiveNewsCacheInvalidator::flushInternalCache()` ->
+`CacheOptimizer::purgePageCacheForThread()`, which purges both the DB1 page-cache index
+and the `T{id}` generic shell (`GenericShellFragment::purgeByTag()`) for ALL threads
+(news and non-news). Tag purges call `purgePageCacheForTag()` -> `purgeByTags()` for the
+`TG{id}`/`TS{hash}` shells. The news-only `LiveNewsCachePurge` job additionally deletes
+`H`, `WN`, and `F{id}` shell fragments before calling the LiteSpeed purge endpoint.
 
 ## Hydration
 

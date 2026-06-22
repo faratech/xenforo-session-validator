@@ -45,6 +45,20 @@ class CapsuleSnapshot
         {
             $response->setCookie(static::MEMBER_COOKIE, false, 0, null, false, 'Lax');
             $response->setCookie(static::BYPASS_COOKIE, '1', 3600, null, true, 'Lax');
+
+            // Invalidate any previously-published snapshot so a now-ineligible visitor
+            // (e.g. freshly banned/demoted) cannot keep hydrating member chrome from a
+            // stale snapshot until its TTL lapses. Best-effort; the bypass cookie set
+            // above already routes their next request away from the capsule path.
+            $redis = SharedRedis::raw();
+            if ($redis)
+            {
+                $key = static::snapshotKey($app, $response);
+                if ($key !== '')
+                {
+                    try { $redis->del($key); } catch (\Throwable $e) {}
+                }
+            }
             return;
         }
 
@@ -108,6 +122,10 @@ class CapsuleSnapshot
 
     protected static function visitorRequiresBypass($visitor): bool
     {
+        // NOTE: do NOT bypass capsule serving for banned members. WindowsForum uses a
+        // SOFT-ban model (SoftIpBan addon) — banned users may still browse, and the ban
+        // is enforced only at registration/login/posting (src/addons), not in the cache
+        // layer. A banned member therefore keeps full capsule/browse functionality.
         if (!empty($visitor->is_admin) || !empty($visitor->is_moderator) || !empty($visitor->is_staff))
         {
             return true;

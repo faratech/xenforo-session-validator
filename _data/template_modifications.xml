@@ -63,7 +63,7 @@
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
-<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false" defer src="/js/windowsforum/capsule/hydrate.js?v=3"></script></xf:if>]]></replace>
+<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false" defer src="/js/windowsforum/capsule/hydrate.js?v=4"></script></xf:if>]]></replace>
   </modification>
   <modification modification_key="wf_style47_resource_hints"
                addon_id="WindowsForum/SessionValidator"

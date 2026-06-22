@@ -148,13 +148,17 @@ class Listener
             return;
         }
 
-        Service\CapsuleSnapshot::publishFromApp($app, $response);
-        
         // Check if cache optimization is enabled
         if (!self::isCacheOptimizerEnabled())
         {
             return;
         }
+
+        // Publish the member hydration snapshot. Gated behind the cache-optimizer
+        // master switch so disabling caching also quiesces capsule cookie/snapshot
+        // emission (kept above the cacheableStatuses gate so the member marker
+        // cookie is still maintained on redirects/error responses).
+        Service\CapsuleSnapshot::publishFromApp($app, $response);
 
         // Skip if not a cacheable response
         // 200 OK, redirects handled by CacheOptimizer, 400/404/410 bot probes.
