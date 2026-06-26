@@ -173,7 +173,9 @@ class Listener
         // Initialize and run the cache optimizer
         $optimizer = new Service\CacheOptimizer();
         $optimizer->setCacheHeaders();
-        Service\GenericShellFragment::publishFromApp($app, $response);
+        // GenericShellFragment (wf_gs) retired — guests and capsule members are
+        // both served from the unified xf:page entry. CapsuleSnapshot (above)
+        // still supplies the member nav hydration data.
 
         // Meta Conversions API — server-side PageView supplement (fires after response flush)
         if ($httpCode === 200)

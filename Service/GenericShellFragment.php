@@ -16,6 +16,76 @@ class GenericShellFragment
     public const DEFAULT_TTL = 600;
     public const MAX_TTL = 86400;
 
+    // Physical Redis-key lifetime cap for shells + their tag-index sets. The
+    // logical expires_at/stale_until payload fields are unbounded (they drive
+    // freshness headers), but a key never occupies RAM longer than this. Keeps
+    // DB1 bounded; a write purges the shell via purgeByTag() anyway.
+    public const STORE_MAX_TTL = 10800;
+
+    // At-rest body compression. prefix/main/suffix are HTML and compress ~5-8x
+    // with a shared trained zstd dict. 'raw' = stored verbatim (ext-zstd or the
+    // dict unavailable -> fail open to legacy behaviour).
+    public const CODEC_RAW = 'raw';
+    public const CODEC_ZSTD_D1 = 'zstd:d1';
+    public const DICT_FILE = 'data/wf_gs_zstd_v1.dict';
+
+    protected static ?string $dict = null;
+    protected static bool $dictLoaded = false;
+
+    /** Shared zstd dictionary blob, or null if unavailable. Loaded once per request. */
+    protected static function dict(): ?string
+    {
+        if (static::$dictLoaded)
+        {
+            return static::$dict;
+        }
+        static::$dictLoaded = true;
+
+        $path = __DIR__ . '/' . static::DICT_FILE;
+        if (is_readable($path))
+        {
+            $blob = @file_get_contents($path);
+            if (is_string($blob) && $blob !== '')
+            {
+                static::$dict = $blob;
+            }
+        }
+
+        return static::$dict;
+    }
+
+    /**
+     * Compress prefix/main/suffix at rest with the shared zstd dict. Fails open:
+     * returns the raw fields + CODEC_RAW when ext-zstd or the dict is missing, or
+     * if any field fails to compress.
+     *
+     * @return array{0:string,1:string,2:string,3:string} [codec, prefix, main, suffix]
+     */
+    protected static function encodeBody(string $prefix, string $main, string $suffix): array
+    {
+        if (!function_exists('zstd_compress_dict'))
+        {
+            return [static::CODEC_RAW, $prefix, $main, $suffix];
+        }
+
+        $dict = static::dict();
+        if ($dict === null)
+        {
+            return [static::CODEC_RAW, $prefix, $main, $suffix];
+        }
+
+        $cPrefix = @zstd_compress_dict($prefix, $dict, 19);
+        $cMain   = @zstd_compress_dict($main, $dict, 19);
+        $cSuffix = @zstd_compress_dict($suffix, $dict, 19);
+
+        if (!is_string($cPrefix) || !is_string($cMain) || !is_string($cSuffix))
+        {
+            return [static::CODEC_RAW, $prefix, $main, $suffix];
+        }
+
+        return [static::CODEC_ZSTD_D1, $cPrefix, $cMain, $cSuffix];
+    }
+
     public static function publishFromApp(App $app, Response $response): void
     {
         try
@@ -146,10 +216,20 @@ class GenericShellFragment
         $staleExtra = max(600, min(static::MAX_TTL, $ttl * 4));
         $staleUntil = $now + $ttl + $staleExtra;
         $tags = static::responseTags($response, $routePath);
+        $csrfToken = static::extractCsrfToken($body);
+
+        // Compress the three large HTML fields at rest (fail open to raw). The
+        // reader (pagecache.php) inflates by the codec marker.
+        [$codec, $prefix, $main, $suffix] = static::encodeBody(
+            substr($body, 0, $start),
+            $main,
+            substr($body, $end)
+        );
 
         $payload = [
             'status' => 'ok',
             'version' => static::VERSION,
+            'codec' => $codec,
             'generated_at' => (string) $now,
             'expires_at' => (string) ($now + $ttl),
             'stale_until' => (string) $staleUntil,
@@ -157,10 +237,10 @@ class GenericShellFragment
             'charset' => $response->charset(),
             'route' => $routePath,
             'tags' => implode(', ', $tags),
-            'csrf_token' => static::extractCsrfToken($body),
-            'prefix' => substr($body, 0, $start),
+            'csrf_token' => $csrfToken,
+            'prefix' => $prefix,
             'main' => $main,
-            'suffix' => substr($body, $end),
+            'suffix' => $suffix,
         ];
 
         $redis = SharedRedis::raw();
@@ -173,7 +253,9 @@ class GenericShellFragment
         {
             $redis->select(static::PAGE_CACHE_REDIS_DB);
             $redis->hMSet($key, $payload);
-            $redisTtl = max($ttl, $staleUntil - $now);
+            // Physical key lifetime is bounded by STORE_MAX_TTL so DB1 RAM stays
+            // small; the logical stale_until window may be longer (serve-stale).
+            $redisTtl = min(static::STORE_MAX_TTL, max($ttl, $staleUntil - $now));
             $redis->expire($key, $redisTtl);
 
             foreach ($tags as $tag)

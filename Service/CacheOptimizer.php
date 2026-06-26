@@ -708,6 +708,7 @@ class CacheOptimizer
             'open-ai-moderation',
             'react',
             'spaminator',
+            'sso',
             'webmcp',
             'wf-unfurl',
         ];
@@ -1280,6 +1281,11 @@ class CacheOptimizer
 
     protected function setNoCacheForDynamicRoute($routePath)
     {
+        $label = trim((string) $routePath, '/');
+        if ($label === 'sso' || strpos($label, 'sso/') === 0) {
+            $label = 'sso';
+        }
+
         $this->response->header('Cache-Control', 'private, no-cache, no-store, must-revalidate, max-age=0');
         $this->response->header('Pragma', 'no-cache');
         $this->response->header('Expires', '0');
@@ -1287,7 +1293,7 @@ class CacheOptimizer
         $this->response->header('Cloudflare-CDN-Cache-Control', 'no-cache, no-store, private');
         $this->response->header('X-LiteSpeed-Cache-Control', 'no-cache');
         $this->response->header('X-LiteSpeed-Tag', 'dynamic');
-        $this->response->header('X-Cache-Optimizer', 'no-cache-' . str_replace('/', '-', trim((string) $routePath, '/')));
+        $this->response->header('X-Cache-Optimizer', 'no-cache-' . str_replace('/', '-', $label));
     }
 
     protected function setNoCacheForStateCookieRoute($label)
@@ -1417,7 +1423,7 @@ class CacheOptimizer
     --------------------------------------------------------------------------*/
 
     /** Hard ceiling on the page-cache store TTL; a missed purge self-heals within this. */
-    const PAGE_CACHE_MAX_STORE_LIFETIME = 3600; // 1 hour (short-tier ceiling, bounds DB1 RAM)
+    const PAGE_CACHE_MAX_STORE_LIFETIME = 10800; // 3 hours — matches the retired wf_gs store cap so xf:page covers the same long-tail band; still bounds DB1 RAM
 
     /** Redis DB index that backs the guest page cache (config: cache.context.page). */
     const PAGE_CACHE_REDIS_DB = 1;
@@ -1823,17 +1829,7 @@ class CacheOptimizer
             try { $redis->select(0); } catch (\Throwable $e) {}
         }
 
-        // Also purge the thread's generic shell (a separate Redis layer, wf_gs:v1:*
-        // indexed under tag T<id>). This is invoked from
-        // LiveNewsCacheInvalidator::flushInternalCache() on every thread/post
-        // save/edit/delete regardless of news status, so it is the edit-time shell
-        // invalidation for ALL threads — without it a stale shell keeps being served
-        // (and masks this page-cache purge, since pagecache.php serves a stale shell
-        // and exits before XF can re-render). Mirrors purgePageCacheForTag().
-        try {
-            GenericShellFragment::purgeByTag('T' . $threadId);
-        } catch (\Throwable $e) {
-        }
+        // (wf_gs generic-shell layer retired — the xf:page purge above is sufficient.)
     }
 
     public static function purgePageCacheForTags($tagIdsOrSlugs)
@@ -1894,21 +1890,7 @@ class CacheOptimizer
             try { $redis->select(0); } catch (\Throwable $e) {}
         }
 
-        $shellTags = [];
-        if ($isId) {
-            $shellTags[] = self::tagIdPurgeTag((int) $tagIdOrSlug);
-        }
-        if ($tag && !empty($tag['tag_id'])) {
-            $shellTags[] = self::tagIdPurgeTag((int) $tag['tag_id']);
-            $shellTags[] = self::tagSlugPurgeTag((string) $tag['tag_url']);
-        } elseif (!$isId) {
-            $shellTags[] = self::tagSlugPurgeTag((string) $tagIdOrSlug);
-        }
-        try {
-            GenericShellFragment::purgeByTags(array_filter(array_unique($shellTags)));
-        } catch (\Throwable $e) {
-        }
-
+        // (wf_gs generic-shell layer retired — no shell purge needed for tags.)
         self::deleteTagHeaderCache($tagIdOrSlug, $tag);
     }
 
