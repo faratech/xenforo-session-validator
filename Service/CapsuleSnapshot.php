@@ -199,6 +199,7 @@ class CapsuleSnapshot
         $convClass = (int) $visitor->conversations_unread ? ' badgeContainer--highlighted' : '';
         $alertClass = (int) $visitor->alerts_unviewed ? ' badgeContainer--highlighted' : '';
         $canStartConversation = method_exists($visitor, 'canStartConversation') && $visitor->canStartConversation();
+        $achievementStreak = static::buildAchievementStreakBadge($visitor);
 
         $link = function (string $route) use ($router): string
         {
@@ -214,6 +215,7 @@ class CapsuleSnapshot
                 '<a href="' . $link('account') . '" class="p-navgroup-link p-navgroup-link--iconic p-navgroup-link--user" data-xf-click="menu" data-xf-key="' . static::phrase('shortcut.visitor_menu') . '" data-menu-pos-ref="&lt; .p-navgroup" title="' . $username . '" aria-expanded="false" aria-haspopup="true">' .
                     $avatar .
                     '<span class="p-navgroup-linkText">' . $username . '</span>' .
+                    $achievementStreak .
                 '</a>' .
                 '<div class="menu menu--structural menu--wide menu--account" data-menu="menu" aria-hidden="true" data-href="' . $link('account/visitor-menu') . '" data-load-target=".js-visitorMenuBody">' .
                     '<div class="menu-content js-visitorMenuBody"><div class="menu-row">' . static::phrase('loading...') . '</div></div>' .
@@ -246,6 +248,45 @@ class CapsuleSnapshot
                     '</div>' .
                 '</div>' .
             '</div>';
+    }
+
+    protected static function buildAchievementStreakBadge($visitor): string
+    {
+        try
+        {
+            $repoClass = '\\WindowsForum\\Achievements\\Repository\\AchievementRepository';
+            if (!$visitor || !$visitor->user_id || !class_exists($repoClass))
+            {
+                return '';
+            }
+
+            $repo = \XF::repository($repoClass);
+            if (!method_exists($repo, 'getNavStreak'))
+            {
+                return '';
+            }
+
+            $streak = $repo->getNavStreak($visitor);
+            $count = (int)($streak['count'] ?? 0);
+            if ($count <= 0)
+            {
+                return '';
+            }
+
+            $countText = static::escape(static::number($count));
+            $label = static::phrase('wf_achievements_posting_streak') . ': ' . $countText;
+            $completeClass = !empty($streak['posted_today']) ? ' is-complete' : '';
+
+            return '<span class="wf-achievementNavStreak' . $completeClass . '" title="' . $label . '" aria-label="' . $label . '">' .
+                '<i class="fa--xf far fa-fire" aria-hidden="true"></i>' .
+                '<span>' . $countText . '</span>' .
+            '</span>';
+        }
+        catch (\Throwable $e)
+        {
+            \XF::logException($e, false, 'Capsule achievement streak: ');
+            return '';
+        }
     }
 
     protected static function phrase(string $name): string
