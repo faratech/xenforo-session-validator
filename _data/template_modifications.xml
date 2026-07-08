@@ -17,9 +17,9 @@
                addon_id="WindowsForum/SessionValidator"
                type="public"
                template="PAGE_CONTAINER"
-               description="Meta Pixel base code (pixel 868064532441503)"
+               description="Meta Pixel base code (pixel 868064532441503) — DISABLED 2026-06-27 (removed for PageSpeed; was the cache-policy + 3rd-party JS top issue)"
                execution_order="8"
-               enabled="1"
+               enabled="0"
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:if is="$xf.style.style_id == 40 OR $xf.style.style_id == 47">
@@ -63,7 +63,19 @@
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
-<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false" defer src="/js/windowsforum/capsule/hydrate.js?v=4"></script></xf:if>]]></replace>
+<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false" defer src="/js/windowsforum/capsule/hydrate.js?v=6"></script></xf:if>]]></replace>
+  </modification>
+  <modification modification_key="wf_cv_media_pin"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Pin content-visibility:visible on posts with actively playing media so content-visibility:auto containment does not freeze video/audio"
+               execution_order="10"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<script data-cfasync="false" defer src="/js/windowsforum/cv-media-pin.min.js?v=1"></script>]]></replace>
   </modification>
   <modification modification_key="wf_style47_resource_hints"
                addon_id="WindowsForum/SessionValidator"
@@ -174,11 +186,11 @@ g+'"]'):0!==g&&e.push('.notice[data-notice-id="'+g+'"]');c&&p('.notice.notice--c
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
-<xf:if is="$xf.style.style_id == 40 OR $xf.style.style_id == 47">
-<script data-cfasync="false">!function(w,d){if(Math.random()>=0.1)return;function l(u,c){var s=d.createElement("script");s.src=u;s.async=!0;s.dataset.cfasync="false";s.onload=c||function(){};d.head.appendChild(s)}function r(){l("/js/windowsforum/rum/web-vitals.iife.js?v=5",function(){l("/js/windowsforum/rum/rum.js?v=1")})}function q(){if("requestIdleCallback"in w)requestIdleCallback(r,{timeout:5000});else setTimeout(r,2500)}if(d.prerendering)d.addEventListener("prerenderingchange",q,{once:!0});else if(d.readyState==="complete")q();else w.addEventListener("load",q,{once:!0})}(window,document);</script>
+<xf:if is="$xf.style.style_id == 40 OR $xf.style.style_id == 47 OR $xf.style.style_id == 50">
+<script data-cfasync="false">!function(w,d){if(Math.random()>=0.1)return;function l(u,c){var s=d.createElement("script");s.src=u;s.async=!0;s.dataset.cfasync="false";s.onload=c||function(){};d.head.appendChild(s)}function r(){l("/js/windowsforum/rum/web-vitals.attribution.iife.js?v=1",function(){l("/js/windowsforum/rum/rum.js?v=2")})}function q(){if("requestIdleCallback"in w)requestIdleCallback(r,{timeout:5000});else setTimeout(r,2500)}if(d.prerendering)d.addEventListener("prerenderingchange",q,{once:!0});else if(d.readyState==="complete")q();else w.addEventListener("load",q,{once:!0})}(window,document);</script>
 <xf:else />
-<script data-cfasync="false" defer src="/js/windowsforum/rum/web-vitals.iife.js?v=5"></script>
-<script data-cfasync="false" defer src="/js/windowsforum/rum/rum.js?v=1"></script>
+<script data-cfasync="false" defer src="/js/windowsforum/rum/web-vitals.attribution.iife.js?v=1"></script>
+<script data-cfasync="false" defer src="/js/windowsforum/rum/rum.js?v=2"></script>
 </xf:if>]]></replace>
   </modification>
   <modification modification_key="wf_speculation_rules"
