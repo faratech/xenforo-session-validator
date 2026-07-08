@@ -706,6 +706,7 @@ class CacheOptimizer
             'chat',
             'chatpage',
             'open-ai-moderation',
+            'online',
             'react',
             'spaminator',
             'sso',

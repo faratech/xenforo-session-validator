@@ -22,7 +22,9 @@ use Symfony\Component\Cache\Marshaller\MarshallerInterface;
 class ZstdMarshaller implements MarshallerInterface
 {
     public const MAGIC = 'Z1';
-    public const LEVEL = 19;
+    // L9 compresses the typical 129KB page body in ~1.3ms at 5.37x; L19 took ~38.5ms
+    // for only 5.62x — the save was 66% of the median cache-miss render time.
+    public const LEVEL = 9;
     // Don't bother compressing tiny values (overhead > benefit).
     public const MIN_SIZE = 512;
 
