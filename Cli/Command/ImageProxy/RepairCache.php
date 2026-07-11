@@ -70,6 +70,18 @@ class RepairCache extends AbstractCommand
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $wfIcr2 = \XF::config('wfImageCacheR2');
+        $wfIcr2Mode = is_array($wfIcr2) ? ($wfIcr2['mode'] ?? 'local') : 'local';
+        if ($wfIcr2Mode !== 'local')
+        {
+            $output->writeln(sprintf(
+                '<error>wf:image-proxy-repair-cache refuses to run: wfImageCacheR2 mode is \'%s\' (not local). '
+                . 'R2 is the authoritative store; peer-filesystem repair would corrupt rows. Use wf-icr2:* commands instead.</error>',
+                $wfIcr2Mode
+            ));
+            return 1;
+        }
+
         $limit = max(1, min(1000, (int)$input->getOption('limit')));
         $scanLimit = max($limit, min(20000, (int)$input->getOption('scan-limit')));
         $peer = (string)$input->getOption('peer');
