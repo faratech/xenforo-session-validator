@@ -53,14 +53,17 @@ class Dispatcher extends XFCP_Dispatcher
 	/**
 	 * Ad-chain Early Hints for full guest renders (the PREBHIT twin lives in
 	 * pagecache.php — keep both in sync): pre-open the AdSense origin and
-	 * start the stage-1/stage-2 fetches during server think-time instead of
-	 * serializing them after HTML parse. Stage 1 is CORS-anonymous (preload
-	 * needs crossorigin); stage 2 is a classic script (no crossorigin, or the
-	 * browser double-fetches). Raw header() on purpose: XF/DigitalPoint set
-	 * their own 'Link' response header late and would clobber a Response-level
-	 * value. Gated to probably-guest GETs (xf_user / capsule-member cookie
-	 * absent) — members never render AdSense, and a rare false positive only
-	 * costs them a wasted preload.
+	 * start the stage-1 fetch during server think-time instead of serializing
+	 * it after HTML parse. Stage 1 is CORS-anonymous (preload needs
+	 * crossorigin). Stage 2 is deliberately NOT preloaded: its URL varies per
+	 * client by version token and experiment arm (show_ads_impl vs _fy2021 vs
+	 * _with_ama — measured 2026-07-14), so an exact-URL pin mostly
+	 * mispredicts and wastes ~500KB of high-priority mobile transfer.
+	 * Raw header() on purpose: XF/DigitalPoint set their own 'Link' response
+	 * header late and would clobber a Response-level value. Gated to
+	 * probably-guest GETs (xf_user / capsule-member cookie absent) — members
+	 * never render AdSense, and a rare false positive only costs them a
+	 * wasted preload.
 	 */
 	protected function emitAdEarlyHints(): void
 	{
@@ -79,13 +82,6 @@ class Dispatcher extends XFCP_Dispatcher
 
 			header('Link: <https://pagead2.googlesyndication.com>; rel=preconnect; crossorigin', false);
 			header('Link: <https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7455498979488414>; rel=preload; as=script; crossorigin; fetchpriority=high', false);
-
-			$implUrl = @include \XF::getRootDirectory() . '/internal_data/wf_ads_impl_preload.php';
-			if (is_string($implUrl)
-				&& preg_match('#^https://pagead2\.googlesyndication\.com/pagead/managed/js/adsense/m20\d{10}/show_ads_impl\.js$#', $implUrl))
-			{
-				header('Link: <' . $implUrl . '>; rel=preload; as=script; fetchpriority=high', false);
-			}
 		}
 		catch (\Throwable $e)
 		{
