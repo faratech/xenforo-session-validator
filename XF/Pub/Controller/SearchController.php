@@ -250,11 +250,11 @@ class SearchController extends XFCP_SearchController
     {
         $ip = $this->request->getIp();
         $rateLimitKey = self::RATE_LIMIT_KEY_PREFIX . md5($ip);
+        // SET NX EX establishes the TTL atomically before the first INCR, so a
+        // worker killed between the two commands can no longer leave a TTL-less
+        // key that rate-limits the IP forever (hardened pattern used elsewhere).
+        $redis->set($rateLimitKey, 0, ['nx', 'ex' => self::RATE_LIMIT_WINDOW]);
         $current = $redis->incr($rateLimitKey);
-        if ($current === 1)
-        {
-            $redis->expire($rateLimitKey, self::RATE_LIMIT_WINDOW);
-        }
 
         return $current > self::RATE_LIMIT_MAX_PER_IP;
     }

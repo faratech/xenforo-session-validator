@@ -70,7 +70,13 @@ class Templater extends XFCP_Templater
             return false;
         }
 
-        if ((int)$this->getStyleId() !== 47)
+        // Gate on the style the manifest was actually BUILT for (its styleId),
+        // not a hardcoded id. The old `=== 47` went stale at the wf4/style-50
+        // cutover, leaving this inert for guests; hardcoding also risked serving
+        // one style's static CSS to another. When the manifest is rebuilt for the
+        // live default style, this activates automatically.
+        $manifest = $this->wfStaticCssManifest();
+        if (empty($manifest) || (int)$this->getStyleId() !== (int)($manifest['styleId'] ?? 0))
         {
             return false;
         }
@@ -102,7 +108,13 @@ class Templater extends XFCP_Templater
             return false;
         }
 
-        if ((int)$this->getStyleId() !== 47)
+        // Gate on the style the manifest was actually BUILT for (its styleId),
+        // not a hardcoded id. The old `=== 47` went stale at the wf4/style-50
+        // cutover, leaving this inert for guests; hardcoding also risked serving
+        // one style's static CSS to another. When the manifest is rebuilt for the
+        // live default style, this activates automatically.
+        $manifest = $this->wfStaticCssManifest();
+        if (empty($manifest) || (int)$this->getStyleId() !== (int)($manifest['styleId'] ?? 0))
         {
             return false;
         }

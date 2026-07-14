@@ -51,7 +51,20 @@
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
-<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false">!function(){var p=document.documentElement.getAttribute("data-cookie-prefix")||"xf_",c=p+"ls=";if(document.cookie.indexOf(c)!==-1&&document.cookie.indexOf(p+"wf_capsule_member=1")===-1){document.cookie=c+";path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";var d=document.documentElement,dark=d.getAttribute("data-color-scheme")==="dark";d.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(dark?"#202122":"#eff5f6")+"!important";location.reload()}}()</script></xf:if>]]></replace>
+<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false">!function(){var d=document,h=d.documentElement,p=h.getAttribute("data-cookie-prefix")||"xf_";function has(n){return new RegExp("(?:^|;\\s*)"+n+"=").test(d.cookie)}function cl(n){d.cookie=n+"=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT;SameSite=Lax"+(location.protocol==="https:"?";secure":"")}function url(){try{var u=new URL(location.href);u.searchParams.delete("_xfCapReload");return u}catch(e){return null}}function strip(){var u=url();if(u&&location.search.indexOf("_xfCapReload=")!==-1&&history.replaceState){var q=u.searchParams.toString();history.replaceState(null,d.title,u.pathname+(q?"?"+q:"")+u.hash)}}if(new RegExp("(?:^|;\\s*)"+p+"wf_capsule_member=1(?:;|$)").test(d.cookie))return;var ls=has(p+"ls"),auth=has(p+"user")||has(p+"wf_capsule_bypass");if(!ls&&!auth){strip();return}var now=Date.now(),guarded=false,u=url();try{var k=u?"wfAuthReload:"+u.pathname+"?"+u.searchParams.toString():"wfAuthReload:"+location.pathname,last=+sessionStorage.getItem(k)||0;if(now-last<30000){cl(p+"wf_capsule_bypass");cl(p+"wf_capsule_member");if(ls)cl(p+"ls");strip();return}sessionStorage.setItem(k,String(now));guarded=true}catch(e){}if(!guarded&&!ls)return;if(ls)cl(p+"ls");h.style.cssText="visibility:hidden!important;overflow:hidden!important;background:"+(h.getAttribute("data-color-scheme")==="dark"?"#202122":"#eff5f6")+"!important";if(u){u.searchParams.set("_xfCapReload","auth"+now);location.replace(u.href)}else{location.reload()}}()</script></xf:if>
+<xf:if is="$xf.visitor.user_id"><script data-cfasync="false">!function(){if(location.search.indexOf("_xfCapReload=")!==-1&&history.replaceState){try{var u=new URL(location.href);u.searchParams.delete("_xfCapReload");var q=u.searchParams.toString();history.replaceState(null,document.title,u.pathname+(q?"?"+q:"")+u.hash)}catch(e){}}}()</script></xf:if>]]></replace>
+  </modification>
+  <modification modification_key="wf_guest_csrf_fill"
+               addon_id="WindowsForum/SessionValidator"
+               type="public"
+               template="PAGE_CONTAINER"
+               description="Fill empty baked CSRF from the shared xf_csrf cookie (guests only) — fresh full renders bake empty tokens; only pagecache-HIT copies are stamped, so CF/httpjet copies primed from a fresh render otherwise break link-post (style chooser)"
+               execution_order="9"
+               enabled="1"
+               action="str_replace">
+    <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
+    <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
+<script data-cfasync="false">!function(){try{var d=document,de=d.documentElement,p=de.getAttribute("data-cookie-prefix")||"xf_";if(new RegExp("(?:^|;\\s*)"+p+"(user|session)=").test(d.cookie))return;var m=d.cookie.match(new RegExp("(?:^|;\\s*)"+p+"csrf=([^;]+)"));if(!m)return;var t=decodeURIComponent(m[1]);var fillDom=function(){try{if(!de.getAttribute("data-csrf"))de.setAttribute("data-csrf",t);var i,els=d.querySelectorAll("input[name=_xfToken]");for(i=0;i<els.length;i++){if(!els[i].value)els[i].value=t}}catch(e){}};fillDom();if(d.readyState==="loading")d.addEventListener("DOMContentLoaded",fillDom,{once:true});var n=0,iv=setInterval(function(){try{if(window.XF&&XF.config){if(!XF.config.csrf)XF.config.csrf=t;clearInterval(iv)}else if(++n>200){clearInterval(iv)}}catch(e){clearInterval(iv)}},50)}catch(e){}}()</script>]]></replace>
   </modification>
   <modification modification_key="wf_capsule_hydrate"
                addon_id="WindowsForum/SessionValidator"
@@ -63,7 +76,7 @@
                action="str_replace">
     <find><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />]]></find>
     <replace><![CDATA[<xf:macro id="helper_js_global::head" arg-app="public" arg-jsState="{$jsState}" />
-<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false" defer src="/js/windowsforum/capsule/hydrate.js?v=6"></script></xf:if>]]></replace>
+<xf:if is="!$xf.visitor.user_id"><script data-cfasync="false" defer src="/js/windowsforum/capsule/hydrate.min.js?v=7"></script></xf:if>]]></replace>
   </modification>
   <modification modification_key="wf_cv_media_pin"
                addon_id="WindowsForum/SessionValidator"

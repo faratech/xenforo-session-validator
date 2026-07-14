@@ -12,6 +12,13 @@ class LiveNewsCachePurge extends AbstractJob
         $nodeIds = $this->normalizeNodeIds($this->data['node_ids'] ?? []);
         $threadId = (int) ($this->data['thread_id'] ?? 0);
 
+        if ($nodeIds) {
+            // Clear XenForo's Redis DB1 listing bodies before the outer cache
+            // layers are purged. Otherwise the warmer receives an old PREBHIT
+            // and immediately repopulates HTTPjet/Cloudflare with stale HTML.
+            \WindowsForum\SessionValidator\Service\CacheOptimizer::purgePageCacheForListings($nodeIds);
+        }
+
         if ($nodeIds || $threadId) {
             $this->purgeLiteSpeedTags($nodeIds, $threadId);
         }
@@ -29,9 +36,36 @@ class LiveNewsCachePurge extends AbstractJob
         try {
             $cloudflareRepo = $this->app->repository('DigitalPoint\Cloudflare:Cloudflare');
             $cloudflareRepo->purgeCache(['files' => $urls]);
+
+            // Cloudflare's single-file API currently reports success for this
+            // zone without evicting cached guest-HTML variants. A narrow path
+            // prefix reliably removes those variants. Keep the file purge for
+            // the homepage, but never turn `/` into a host-wide prefix purge.
+            $prefixes = $this->buildCloudflarePrefixes($urls);
+            if ($prefixes) {
+                $cloudflareRepo->purgeCache(['prefixes' => $prefixes]);
+            }
         } catch (\Throwable $e) {
             \XF::logException($e, false, 'SessionValidator live-news Cloudflare purge failed: ');
         }
+    }
+
+    protected function buildCloudflarePrefixes(array $urls)
+    {
+        $prefixes = [];
+
+        foreach ($urls as $url) {
+            $parts = @parse_url($url);
+            $host = strtolower((string) ($parts['host'] ?? ''));
+            $path = (string) ($parts['path'] ?? '');
+            if ($host === '' || $path === '' || $path === '/') {
+                continue;
+            }
+
+            $prefixes[$host . rtrim($path, '/')] = true;
+        }
+
+        return array_keys($prefixes);
     }
 
     protected function purgeLiteSpeedTags(array $nodeIds, $threadId = 0)
@@ -54,7 +88,10 @@ class LiveNewsCachePurge extends AbstractJob
                 continue;
             }
 
-            @exec("curl -s -m 2 'http://127.0.0.1/lscache_purge.php?tag={$tag}' -H {$hostArg} > /dev/null 2>&1 &");
+            // Complete each local tag purge before starting the warmer. A
+            // detached purge can race the warm requests, either replaying the
+            // old outer entry or deleting the newly warmed replacement.
+            @exec("curl -s --connect-timeout 1 --max-time 2 'http://127.0.0.1/lscache_purge.php?tag={$tag}' -H {$hostArg} > /dev/null 2>&1");
         }
     }
 
@@ -64,7 +101,12 @@ class LiveNewsCachePurge extends AbstractJob
 
         foreach ($urls as $url) {
             $urlArg = escapeshellarg($url);
-            @exec("curl -s --compressed --connect-timeout 2 --max-time 8 -A {$userAgent} {$urlArg} > /dev/null 2>&1 &");
+            $curl = "curl -s --compressed --connect-timeout 2 --max-time 8 -A {$userAgent} {$urlArg}";
+            // The first request recreates the now-missing XenForo DB1 page.
+            // With the optimizer master switch off that full render is private
+            // to HTTPjet/Cloudflare; the second request is the fresh PREBHIT
+            // that safely warms those outer public caches.
+            @exec("({$curl}; {$curl}) > /dev/null 2>&1 &");
         }
     }
 

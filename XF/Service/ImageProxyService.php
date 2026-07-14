@@ -28,11 +28,11 @@ class ImageProxyService extends XFCP_ImageProxyService
         try
         {
             $response = $this->app->http()->reader()->getUntrusted($url, [
-                'time' => 3,
+                'time' => 6,
                 'bytes' => $imageProxyMaxSize ?: -1,
             ], $streamFile, [
                 'connect_timeout' => 1,
-                'timeout' => 4,
+                'timeout' => 8,
                 'headers' => [
                     'Accept' => 'image/svg+xml,image/*,*/*;q=0.8',
                 ],

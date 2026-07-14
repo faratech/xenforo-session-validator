@@ -1442,6 +1442,9 @@ class CacheOptimizer
             $routePath = $pageCache->getRequest()->getRoutePath();
             $threadId = self::parseThreadId($routePath);
             $tagSlug = $threadId ? '' : self::parseTagSlug($routePath);
+            $listingIndexKey = (!$threadId && $tagSlug === '')
+                ? self::listingPageIndexKey($routePath)
+                : '';
             if ($threadId) {
                 $ttl = self::threadPageStoreLifetime($threadId, $base);
             } elseif ($tagSlug !== '') {
@@ -1450,15 +1453,23 @@ class CacheOptimizer
                 $ttl = self::publicRouteStoreLifetime($routePath, $base);
             }
 
-            if ($ttl <= $base) {
+            $extendsLifetime = $ttl > $base;
+            if (!$extendsLifetime && $listingIndexKey === '') {
                 return; // keep the short default TTL
             }
 
-            $pageCache->setLifetime($ttl);
-            if ($threadId) {
+            if ($extendsLifetime) {
+                $pageCache->setLifetime($ttl);
+            } else {
+                $ttl = $base;
+            }
+
+            if ($threadId && $extendsLifetime) {
                 self::registerThreadPageKey($threadId, $pageCache->getCacheId(), $ttl);
-            } elseif ($tagSlug !== '') {
+            } elseif ($tagSlug !== '' && $extendsLifetime) {
                 self::registerTagPageKey($tagSlug, $pageCache->getCacheId(), $ttl);
+            } elseif ($listingIndexKey !== '') {
+                self::registerListingPageKey($listingIndexKey, $pageCache->getCacheId(), $ttl);
             }
         } catch (\Throwable $e) {
             // Caching is best-effort; never break the request on optimizer logic.
@@ -1477,6 +1488,24 @@ class CacheOptimizer
     {
         if (preg_match('#^tags/([^/?]+)(?:/|$)#', (string) $routePath, $m)) {
             return rawurldecode($m[1]);
+        }
+
+        return '';
+    }
+
+    protected static function listingPageIndexKey($routePath)
+    {
+        $routePath = trim((string) $routePath, '/');
+        if ($routePath === '') {
+            return 'wf_pcidx:h';
+        }
+
+        if ($routePath === 'whats-new' || strpos($routePath, 'whats-new/') === 0) {
+            return 'wf_pcidx:wn';
+        }
+
+        if (preg_match('#^forums/(?:[^/]*\.)?(\d+)(?:/|$)#', $routePath, $m)) {
+            return 'wf_pcidx:f:' . (int) $m[1];
         }
 
         return '';
@@ -1788,6 +1817,62 @@ class CacheOptimizer
             $tag = self::fetchTagRowStatic($tagSlug);
             if ($tag && !empty($tag['tag_id'])) {
                 self::registerPageCacheIndex(self::tagIdIndexKey((int) $tag['tag_id']), $cacheId, $ttl, $redis);
+            }
+        } catch (\Throwable $e) {
+        } finally {
+            try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+    }
+
+    protected static function registerListingPageKey($indexKey, $cacheId, $ttl)
+    {
+        if (!$indexKey || !$cacheId) {
+            return;
+        }
+
+        $redis = \WindowsForum\SharedRedis::raw();
+        if (!$redis) {
+            return;
+        }
+
+        try {
+            $redis->select(self::PAGE_CACHE_REDIS_DB);
+            self::registerPageCacheIndex($indexKey, $cacheId, $ttl, $redis);
+        } catch (\Throwable $e) {
+        } finally {
+            try { $redis->select(0); } catch (\Throwable $e) {}
+        }
+    }
+
+    /**
+     * Drop the Redis DB1 listing pages that a news-thread write makes stale.
+     * HTTPjet/Cloudflare tag purges alone are insufficient: their warm request
+     * otherwise receives the old PREBHIT body and immediately re-caches it.
+     */
+    public static function purgePageCacheForListings(array $nodeIds)
+    {
+        $indexKeys = ['wf_pcidx:h', 'wf_pcidx:wn'];
+        foreach (array_unique(array_filter(array_map('intval', $nodeIds))) as $nodeId) {
+            $indexKeys[] = 'wf_pcidx:f:' . $nodeId;
+        }
+
+        $redis = \WindowsForum\SharedRedis::raw();
+        if (!$redis) {
+            return;
+        }
+
+        try {
+            $redis->select(self::PAGE_CACHE_REDIS_DB);
+            foreach ($indexKeys as $indexKey) {
+                $cacheIds = $redis->sMembers($indexKey);
+                if ($cacheIds) {
+                    $rawKeys = [];
+                    foreach ($cacheIds as $cacheId) {
+                        $rawKeys[] = 'xf:' . $cacheId;
+                    }
+                    $redis->del($rawKeys);
+                }
+                $redis->del($indexKey);
             }
         } catch (\Throwable $e) {
         } finally {

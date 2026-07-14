@@ -2,6 +2,7 @@
 
 namespace WindowsForum\SessionValidator\XF\Pub\Controller;
 
+use XF\ControllerPlugin\StylePlugin;
 use XF\Mvc\ParameterBag;
 use XF\Mvc\Reply\Redirect;
 use XF\Repository\StyleRepository;
@@ -9,14 +10,17 @@ use XF\Repository\StyleRepository;
 class MiscController extends XFCP_MiscController
 {
     /**
-     * Skip CSRF pre-dispatch check for guest style-variation requests.
+     * Skip CSRF pre-dispatch checks for guest style preference requests.
      * On CDN-cached pages the data-csrf token is signed with a different xf_csrf
      * cookie than what vc.php later sets, so CSRF always fails for guests.
      * Style variation is a non-destructive preference cookie — safe to skip.
      */
     public function checkCsrfIfNeeded($action, ParameterBag $params)
     {
-        if ($action === 'StyleVariation' && !\XF::visitor()->user_id)
+        if (
+            !\XF::visitor()->user_id
+            && in_array($action, ['Style', 'StyleVariation'], true)
+        )
         {
             return;
         }
@@ -26,6 +30,19 @@ class MiscController extends XFCP_MiscController
 
     public function actionStyle()
     {
+        // StandardLib converts a guest GET into a full redirect interstitial
+        // when its client-side link-post handler has no CSRF token yet. A style
+        // choice is a guest preference cookie, so handle that request directly
+        // and avoid the extra interstitial page load.
+        if (
+            !$this->isPost()
+            && !\XF::visitor()->user_id
+            && $this->request->exists('style_id')
+        )
+        {
+            return $this->handleGuestStyleSelection();
+        }
+
         $reply = parent::actionStyle();
 
         if ($reply instanceof Redirect && $this->request->exists('style_id'))
@@ -33,8 +50,6 @@ class MiscController extends XFCP_MiscController
             $url = $reply->getUrl();
             $separator = strpos($url, '?') !== false ? '&' : '?';
             $reply->setUrl($url . $separator . '_sc=' . \XF::$time);
-
-            $this->app->response()->header('Clear-Site-Data', '"cache"');
 
             // Re-set style cookies as non-httpOnly for JS access on cached pages.
             // The core sets both style_id and style_variation as httpOnly.
@@ -72,6 +87,15 @@ class MiscController extends XFCP_MiscController
         // Prevent search engines from indexing/crawling this preference endpoint
         $this->app->response()->header('X-Robots-Tag', 'noindex, nofollow');
 
+        if (
+            !$this->isPost()
+            && !\XF::visitor()->user_id
+            && ($this->request->exists('variation') || $this->filter('reset', 'bool'))
+        )
+        {
+            return $this->handleGuestStyleVariationFallback();
+        }
+
         try
         {
             $reply = parent::actionStyleVariation();
@@ -94,8 +118,6 @@ class MiscController extends XFCP_MiscController
             $separator = strpos($url, '?') !== false ? '&' : '?';
             $reply->setUrl($url . $separator . '_sc=' . \XF::$time);
 
-            $this->app->response()->header('Clear-Site-Data', '"cache"');
-
             // XenForo sets style_variation as httpOnly by default, but the
             // wf_variation_fix JS and CF Worker cache-key variation both need
             // to read it. Re-set with httpOnly=false so the cookie is
@@ -116,6 +138,36 @@ class MiscController extends XFCP_MiscController
         }
 
         return $reply;
+    }
+
+    protected function handleGuestStyleSelection(): \XF\Mvc\Reply\AbstractReply
+    {
+        $visitor = \XF::visitor();
+        if (!$visitor->canChangeStyle($error))
+        {
+            return $this->noPermission($error);
+        }
+
+        $redirect = $this->getDynamicRedirect(null, true);
+        $styleId = $this->filter('style_id', 'uint');
+        $style = $this->app->style($styleId);
+
+        if ($style['user_selectable'] || $visitor->is_admin)
+        {
+            $stylePlugin = $this->plugin(StylePlugin::class);
+            $currentStyle = $this->app->style($visitor->style_id);
+            $variation = $stylePlugin->getEquivalentStyleVariation(
+                $currentStyle,
+                $style,
+                $visitor->style_variation
+            );
+
+            $this->app->response()->setCookie('style_id', $style->getId(), 0, null, false);
+            $this->app->response()->setCookie('style_variation', $variation ?: false, 0, null, false);
+        }
+
+        $separator = strpos($redirect, '?') !== false ? '&' : '?';
+        return $this->redirect($redirect . $separator . '_sc=' . \XF::$time);
     }
 
     /**
@@ -165,8 +217,6 @@ class MiscController extends XFCP_MiscController
         );
         $separator = strpos($redirect, '?') !== false ? '&' : '?';
         $redirect .= $separator . '_sc=' . \XF::$time;
-
-        $this->app->response()->header('Clear-Site-Data', '"cache"');
 
         $reply = $this->redirect($redirect);
         $reply->setJsonParams([

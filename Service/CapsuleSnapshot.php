@@ -30,7 +30,7 @@ class CapsuleSnapshot
     public static function clearCookies(Response $response): void
     {
         $response->setCookie(static::MEMBER_COOKIE, false, 0, null, false, 'Lax');
-        $response->setCookie(static::BYPASS_COOKIE, false, 0, null, true, 'Lax');
+        $response->setCookie(static::BYPASS_COOKIE, false, 0, null, false, 'Lax');
     }
 
     protected static function publish(App $app, Response $response, bool $force): void
@@ -44,7 +44,11 @@ class CapsuleSnapshot
         if (static::visitorRequiresBypass($visitor))
         {
             $response->setCookie(static::MEMBER_COOKIE, false, 0, null, false, 'Lax');
-            $response->setCookie(static::BYPASS_COOKIE, '1', 3600, null, true, 'Lax');
+            // JS-readable (non-httpOnly): the guest-page auth-mismatch guard and
+            // hydrate.js need to see the bypass state to reload browser-cached
+            // guest pages for staff. Non-unique boolean — same privacy class as
+            // the member marker cookie.
+            $response->setCookie(static::BYPASS_COOKIE, '1', 3600, null, false, 'Lax');
 
             // Invalidate any previously-published snapshot so a now-ineligible visitor
             // (e.g. freshly banned/demoted) cannot keep hydrating member chrome from a
