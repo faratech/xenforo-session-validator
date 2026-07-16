@@ -1178,11 +1178,14 @@ class CacheOptimizer
      */
     protected function setErrorCacheHeaders($httpCode)
     {
-        // 30s browser / 30s edge — long enough to absorb bot 404-probe floods,
-        // short enough that moderation-queued content becoming visible recovers
-        // quickly even if a targeted purge is missed.
+        // 30s browser / 300s edge. The edge TTL was 30s while a missed
+        // moderation-release purge had no recovery path; purgeContentForThread
+        // now purges released content's own URLs (not news-gated), so the
+        // moderation-404 incident class is purge-guarded and crawler 404-probe
+        // churn (~5k/day of repeats) can absorb at the edge for 5 minutes.
+        // Browser stays 30s so humans behind a stale bookmark recover fast.
         $maxAge = 30;
-        $sMaxAge = 30;
+        $sMaxAge = 300;
         $this->setCacheControlHeaders($maxAge, $sMaxAge);
 
         $this->response->header('X-Cache-Optimizer', 'error-' . $httpCode);
