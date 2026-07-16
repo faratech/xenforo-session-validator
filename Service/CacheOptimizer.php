@@ -29,6 +29,24 @@ class CacheOptimizer
             return;
         }
 
+        // Preload/preconnect Link headers belong only on 200 HTML pages: httpjet
+        // turns them into a 103 Early Hints interim response, and Cloudflare's
+        // Early Hints engine stores them per-URI (query-string-blind), so a Link
+        // on a redirect/JSON/error response seeds wrong hints for every future
+        // visitor of that URI. Strip at raw-PHP level — the emitters (Dispatcher
+        // ad hints fire pre-dispatch on every guest GET; DigitalPoint's Templater
+        // leaks template preloads onto redirects) use raw header() deliberately.
+        // The .htaccess-level api-catalog/canonical Link headers are applied
+        // after PHP and survive this.
+        $linkStripCode = $this->response->httpCode();
+        $linkStripType = (string) $this->response->contentType();
+        if ($linkStripCode !== 200 || strpos($linkStripType, 'text/html') !== 0) {
+            // Both levels, same as clearCacheHeaders(): raw header() emitters
+            // AND XF Response-level ones (DigitalPoint's Templater preloads).
+            header_remove('Link');
+            $this->response->removeHeader('Link');
+        }
+
         // Keep the pre-bootstrap pagecache.php reader's default style/language/cache
         // version in sync with the live options (it can't call \XF::options()).
         self::syncPagecacheKeyDefaults();
