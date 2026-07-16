@@ -80,8 +80,16 @@ class CacheOptimizer
             && $request->getRequestMethod() === 'get'
             && \XF::config('wfWebmcpManifestEdgeCache')
             && !$this->requestCarriesUserCookie()
-            && !$request->getCookie('session')
-            && $this->requestCsrfCookieIsSharedOrAbsent()
+            && (
+                // Cookie-less / shared-csrf guests, or (behind the relax flag)
+                // session-carrying guests whose csrf is EXACTLY the shared
+                // constant — absent is not enough for them, their session may
+                // hold a per-visitor token.
+                (!$request->getCookie('session') && $this->requestCsrfCookieIsSharedOrAbsent())
+                || (\XF::config('wfWebmcpManifestSessionRelax')
+                    && !$request->getCookie('session_admin')
+                    && $request->getCookie('csrf') === $this->sharedGuestCsrfValue())
+            )
         ) {
             $this->suppressPublicGuestCsrfCookie();
             $this->response->header('Cache-Control', 'public, max-age=0, s-maxage=300');
@@ -798,12 +806,21 @@ class CacheOptimizer
             return true;
         }
 
+        return $csrf === $this->sharedGuestCsrfValue();
+    }
+
+    /**
+     * The pinned shared-guest csrf COOKIE value — same derivation as
+     * pagecache.php / vc.php / the Dispatcher shim (the three-minter invariant).
+     */
+    protected function sharedGuestCsrfValue()
+    {
         $globalSalt = (string) (\XF::config('globalSalt') ?? '');
         if ($globalSalt === '') {
             $globalSalt = 'fcd7759919fa39714177351c07147c65'; // XF default (App.php)
         }
 
-        return $csrf === substr(hash_hmac('md5', 'wf-shared-guest-csrf', $globalSalt), 0, 16);
+        return substr(hash_hmac('md5', 'wf-shared-guest-csrf', $globalSalt), 0, 16);
     }
 
     protected function suppressPublicGuestCsrfCookie()
