@@ -17,7 +17,7 @@
     "src/addons/WindowsForum/SessionValidator/Listener.php": "a8b0004346ce6c15d44693a07025547a85899876bc9a9d5fcb8853510985bc39",
     "src/addons/WindowsForum/SessionValidator/README-ADDON.md": "eb6c9b5a6635328508c49507aff028322058e4236d27241cbd0a51d0bf749491",
     "src/addons/WindowsForum/SessionValidator/README.md": "2f1888b32d8218360790ea583395f364a9d5c085e4d37d3a8139351a91ab3960",
-    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "973cf02dfc338006dfdcc784506dbffde54f5585f71215aa2ce05c227c63d01a",
+    "src/addons/WindowsForum/SessionValidator/Service/CacheOptimizer.php": "f1256e255006c27b5845716be6e1ddf96ac5854bb83640f7b337d67642a70378",
     "src/addons/WindowsForum/SessionValidator/Service/CapsuleSnapshot.php": "99f3b3601d055f3e3dca8a50cf325e36c647ca5d30adf5b573bebb13ee4ef59c",
     "src/addons/WindowsForum/SessionValidator/Service/data/wf_gs_zstd_v1.dict": "83ac64b97a04c690224904c61e75a5b083d668b3cd6b5839121ed26ec6d42aac",
     "src/addons/WindowsForum/SessionValidator/Service/GenericShellFragment.php": "ed0fa2a59e051c41d23aa8547ea5970066cd7a3e3c2e7d0e84704982fa3505c4",

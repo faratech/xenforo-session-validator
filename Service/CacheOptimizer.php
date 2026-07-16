@@ -1211,6 +1211,12 @@ class CacheOptimizer
             }
             $maxAge = 3600;
             $sMaxAge = 21600;
+            $this->setCacheControlHeaders($maxAge, $sMaxAge);
+            // Dedicated label (allow-listed in httpjet since 1664d92) so
+            // attachment-303 traffic is distinguishable from /latest in
+            // analytics and can be gated independently.
+            $this->response->header('X-Cache-Optimizer', 'redirect-attach-303');
+            return;
         } elseif (preg_match('#^whats-new/posts/?$#', $routePath)) {
             // This pointer can change quickly on an active site.
             $maxAge = 30;
