@@ -19,6 +19,13 @@ class LiveNewsCacheInvalidator
         // save, not just news, since the cache is per-thread and per-forum.
         self::flushInternalCache((int) $thread->thread_id, $nodeIds);
 
+        // Aged threads (>7d tiers) carry multi-day edge TTLs and are Cache
+        // Reserve-eligible, so a write can otherwise serve stale from CF until
+        // the origin TTL lapses — purge the thread's own URL at the edge.
+        // Fresh threads keep the pre-existing accept-staleness-up-to-tier model
+        // (short TTLs) and are excluded to keep purge volume negligible.
+        self::purgeAgedThreadUrl($thread);
+
         $newsNodeIds = self::getNewsNodeIds();
         if (!self::intersects($nodeIds, $newsNodeIds)) {
             return;
@@ -90,6 +97,64 @@ class LiveNewsCacheInvalidator
             );
         } catch (\Throwable $e) {
             \XF::logException($e, false, 'SessionValidator moderation cache purge enqueue failed: ');
+        }
+    }
+
+    /**
+     * CF-purge the thread's own canonical URL when a write lands on an aged
+     * thread. The job's prefix purge (host/threads/<slug>.<id>) also evicts
+     * page-N, /latest, and Cache Reserve entries for the thread. Age is
+     * judged on the PRE-SAVE last_post_date — that is the age the cached
+     * copies were rendered under.
+     */
+    protected static function purgeAgedThreadUrl($thread)
+    {
+        try {
+            $lastPostDate = (int) ($thread->last_post_date ?? 0);
+            if (method_exists($thread, 'isUpdate') && $thread->isUpdate()
+                && method_exists($thread, 'isChanged') && $thread->isChanged('last_post_date')
+                && method_exists($thread, 'getExistingValue')
+            ) {
+                $lastPostDate = (int) $thread->getExistingValue('last_post_date');
+            }
+            if (!$lastPostDate) {
+                return;
+            }
+
+            $threshold = (int) (\XF::options()->wfCacheOptimizer_ageThreshold7Days ?? 604800);
+            if (\XF::$time - $lastPostDate <= $threshold) {
+                return;
+            }
+
+            $urls = [];
+            try {
+                self::addUrlWithSlashVariants($urls, \XF::app()->router('public')->buildLink('canonical:threads', $thread));
+            } catch (\Throwable $e) {
+                self::addUrlWithSlashVariants($urls, 'threads/' . (int) $thread->thread_id . '/');
+            }
+            $urls = array_keys($urls);
+            if (!$urls) {
+                return;
+            }
+
+            $jobKey = md5('aged:' . implode("\n", $urls));
+            if (isset(self::$queued[$jobKey])) {
+                return;
+            }
+            self::$queued[$jobKey] = true;
+
+            \XF::app()->jobManager()->enqueueUnique(
+                'wfLiveNewsCachePurge:' . $jobKey,
+                'WindowsForum\SessionValidator\Job\LiveNewsCachePurge',
+                [
+                    'urls' => $urls,
+                    'node_ids' => [],
+                    'thread_id' => (int) $thread->thread_id,
+                ],
+                false
+            );
+        } catch (\Throwable $e) {
+            \XF::logException($e, false, 'SessionValidator aged-thread cache purge enqueue failed: ');
         }
     }
 

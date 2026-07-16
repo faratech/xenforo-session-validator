@@ -70,7 +70,9 @@ class LiveNewsCachePurge extends AbstractJob
 
     protected function purgeLiteSpeedTags(array $nodeIds, $threadId = 0)
     {
-        $tags = ['H', 'WN'];
+        // Listing tags (homepage/whats-new/forum) only when node listings are
+        // affected; a thread-only purge (aged-thread write) must not churn them.
+        $tags = $nodeIds ? ['H', 'WN'] : [];
         foreach ($nodeIds as $nodeId) {
             $tags[] = 'F' . (int) $nodeId;
         }

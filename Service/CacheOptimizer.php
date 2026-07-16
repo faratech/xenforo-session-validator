@@ -68,6 +68,28 @@ class CacheOptimizer
             return;
         }
 
+        // Guest /webmcp/manifest.json is visitor-independent (one shared payload,
+        // shared-guest CSRF constant) — under the wfWebmcpManifestEdgeCache config
+        // flag it is edge-cacheable so CF absorbs the fetches. Only shared-safe
+        // renders get public headers: a guest carrying an unrecognized per-session
+        // csrf cookie gets a token bound to THEIR cookie and keeps no-store (CF
+        // respect_origin then never stores it). Members keep the dynamic no-store
+        // below. This mirrors the pagecache.php pre-bootstrap fast-path headers.
+        if ($routePath === 'webmcp/manifest.json'
+            && !$visitor->user_id
+            && $request->getRequestMethod() === 'get'
+            && \XF::config('wfWebmcpManifestEdgeCache')
+            && !$this->requestCarriesUserCookie()
+            && !$request->getCookie('session')
+            && $this->requestCsrfCookieIsSharedOrAbsent()
+        ) {
+            $this->suppressPublicGuestCsrfCookie();
+            $this->response->header('Cache-Control', 'public, max-age=0, s-maxage=300');
+            $this->response->header('Cloudflare-CDN-Cache-Control', 'max-age=300');
+            $this->response->header('X-Cache-Optimizer', 'webmcp-guest-manifest');
+            return;
+        }
+
         if ($this->isDynamicNoStoreRoute($routePath)) {
             $this->setNoCacheForDynamicRoute($routePath);
             return;
@@ -763,6 +785,27 @@ class CacheOptimizer
         return (bool) $this->app->request()->getCookie('user');
     }
 
+    /**
+     * True when the visitor has no csrf cookie or carries the pinned shared-guest
+     * value (the same constant pagecache.php / vc.php / the Dispatcher shim mint).
+     * Responses rendered for such visitors embed the SHARED token and are safe to
+     * cache cross-guest; any other csrf cookie means a per-visitor token.
+     */
+    protected function requestCsrfCookieIsSharedOrAbsent()
+    {
+        $csrf = $this->app->request()->getCookie('csrf');
+        if (!$csrf) {
+            return true;
+        }
+
+        $globalSalt = (string) (\XF::config('globalSalt') ?? '');
+        if ($globalSalt === '') {
+            $globalSalt = 'fcd7759919fa39714177351c07147c65'; // XF default (App.php)
+        }
+
+        return $csrf === substr(hash_hmac('md5', 'wf-shared-guest-csrf', $globalSalt), 0, 16);
+    }
+
     protected function suppressPublicGuestCsrfCookie()
     {
         try {
@@ -1152,10 +1195,30 @@ class CacheOptimizer
             $maxAge = 30;
             $sMaxAge = 120;
         } else {
-            // Thread /latest redirects are stable enough to collapse crawler traffic,
-            // but still short enough to follow new replies soon.
+            // Thread /latest redirects are stable enough to collapse crawler traffic.
+            // Tier the edge TTL by thread age like the page itself: the Location only
+            // moves on a new reply, rarest exactly where the crawler tail is hottest.
+            // A reply to an aged thread prefix-purges threads/<slug>.<id> at CF
+            // (LiveNewsCacheInvalidator), which covers this /latest URL too; a stale
+            // hit still lands the visitor in the thread where the new reply is visible.
             $maxAge = 300;
             $sMaxAge = 1800;
+            if (preg_match('#^threads/[^/]+\.(\d+)/latest/?$#', $routePath, $latestMatch)) {
+                $thread = $this->getThread($latestMatch[1]);
+                if ($thread && !empty($thread['last_post_date'])) {
+                    $age = time() - (int) $thread['last_post_date'];
+                    $threshold1Day = $this->options->wfCacheOptimizer_ageThreshold1Day ?? 86400;
+                    $threshold7Days = $this->options->wfCacheOptimizer_ageThreshold7Days ?? 604800;
+                    $threshold30Days = $this->options->wfCacheOptimizer_ageThreshold30Days ?? 2592000;
+                    if ($age > $threshold30Days) {
+                        $sMaxAge = 259200;
+                    } elseif ($age > $threshold7Days) {
+                        $sMaxAge = 43200;
+                    } elseif ($age > $threshold1Day) {
+                        $sMaxAge = 7200;
+                    }
+                }
+            }
         }
 
         $this->setCacheControlHeaders($maxAge, $sMaxAge);
