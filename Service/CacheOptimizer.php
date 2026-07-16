@@ -1177,7 +1177,8 @@ class CacheOptimizer
     protected function isGuestCacheableRedirect($routePath)
     {
         return preg_match('#^threads/[^/]+\.\d+/latest/?$#', $routePath)
-            || preg_match('#^whats-new/posts/?$#', $routePath);
+            || preg_match('#^whats-new/posts/?$#', $routePath)
+            || preg_match('#^attachments/[^/]+\.\d+/?$#', $routePath);
     }
 
     /**
@@ -1190,7 +1191,27 @@ class CacheOptimizer
             return;
         }
 
-        if (preg_match('#^whats-new/posts/?$#', $routePath)) {
+        if (preg_match('#^attachments/[^/]+\.\d+/?$#', $routePath)) {
+            // Attachment-page 303s point at the public R2 custom domain, whose
+            // objects ignore the ?token= param (verified: aged and absent tokens
+            // both 200) — the Location is stable, so the redirect is cacheable
+            // for guests. Guards: only the attachments CDN host, and never a
+            // presigned form (X-Amz-*) — if cloudflarePresignAttachments is ever
+            // enabled the label auto-drops to no-cache. Accepted staleness
+            // window (deliberate, in lieu of entity purge hooks that would
+            // require an addon rebuild): a deleted attachment leaves a broken
+            // 303 for <= sMaxAge; a thread privatized mid-window extends the
+            // page->CDN mapping by <= sMaxAge — immaterial because the CDN
+            // objects themselves are CF-cached for 1y regardless.
+            $location = (string) $this->response->header('Location');
+            $host = (string) (@parse_url($location, PHP_URL_HOST) ?: '');
+            if ($host !== 'attachments.windowsforum.com' || stripos($location, 'X-Amz-') !== false) {
+                $this->setNoCacheForRedirect($httpCode);
+                return;
+            }
+            $maxAge = 3600;
+            $sMaxAge = 21600;
+        } elseif (preg_match('#^whats-new/posts/?$#', $routePath)) {
             // This pointer can change quickly on an active site.
             $maxAge = 30;
             $sMaxAge = 120;
@@ -1306,7 +1327,16 @@ class CacheOptimizer
             return;
         }
 
-        if (preg_match('#^threads/[^/]+\.\d+/post-\d+/?$#', (string) $routePath)) {
+        // posts/NNN and goto/post resolve to thread permalinks exactly like the
+        // threads/...post-N shape below — same deterministic mapping, same
+        // staleness bound (a merge/move leaves the old target serving a valid
+        // thread page for at most the TTL). Both routes are robots-disallowed;
+        // the traffic is crawlers ignoring robots plus in-content links. The
+        // redirect-thread-post-* label is in httpjet's deployed allow-list, so
+        // this ships without a binary change.
+        if (preg_match('#^threads/[^/]+\.\d+/post-\d+/?$#', (string) $routePath)
+            || preg_match('#^(posts/\d+|goto/post)#', (string) $routePath)
+        ) {
             $maxAge = 604800;
             $sMaxAge = 2592000;
             $label = 'redirect-thread-post-' . $httpCode;

@@ -19,11 +19,11 @@ class LiveNewsCacheInvalidator
         // save, not just news, since the cache is per-thread and per-forum.
         self::flushInternalCache((int) $thread->thread_id, $nodeIds);
 
-        // Aged threads (>7d tiers) carry multi-day edge TTLs and are Cache
+        // Aged threads (>1d tiers) carry >=12h edge TTLs and are Cache
         // Reserve-eligible, so a write can otherwise serve stale from CF until
         // the origin TTL lapses — purge the thread's own URL at the edge.
-        // Fresh threads keep the pre-existing accept-staleness-up-to-tier model
-        // (short TTLs) and are excluded to keep purge volume negligible.
+        // Fresh threads (<1d) keep the pre-existing accept-staleness model
+        // (short TTLs); last_post_date rewinds always purge (see method doc).
         self::purgeAgedThreadUrl($thread);
 
         $newsNodeIds = self::getNewsNodeIds();
@@ -105,24 +105,32 @@ class LiveNewsCacheInvalidator
      * thread. The job's prefix purge (host/threads/<slug>.<id>) also evicts
      * page-N, /latest, and Cache Reserve entries for the thread. Age is
      * judged on the PRE-SAVE last_post_date — that is the age the cached
-     * copies were rendered under.
+     * copies were rendered under. Gate is the 1-DAY threshold: every tier
+     * from thread1Day up carries a >=12h edge TTL (Reserve-eligible), so all
+     * of them need the purge backstop; fresh threads (<1d, short TTLs) keep
+     * the accept-staleness model. A DECREASED last_post_date (post removal /
+     * merge rewind) always purges regardless of age — the cached copy shows
+     * content that no longer exists.
      */
     protected static function purgeAgedThreadUrl($thread)
     {
         try {
             $lastPostDate = (int) ($thread->last_post_date ?? 0);
+            $rewound = false;
             if (method_exists($thread, 'isUpdate') && $thread->isUpdate()
                 && method_exists($thread, 'isChanged') && $thread->isChanged('last_post_date')
                 && method_exists($thread, 'getExistingValue')
             ) {
-                $lastPostDate = (int) $thread->getExistingValue('last_post_date');
+                $previous = (int) $thread->getExistingValue('last_post_date');
+                $rewound = $lastPostDate > 0 && $lastPostDate < $previous;
+                $lastPostDate = $previous;
             }
             if (!$lastPostDate) {
                 return;
             }
 
-            $threshold = (int) (\XF::options()->wfCacheOptimizer_ageThreshold7Days ?? 604800);
-            if (\XF::$time - $lastPostDate <= $threshold) {
+            $threshold = (int) (\XF::options()->wfCacheOptimizer_ageThreshold1Day ?? 86400);
+            if (!$rewound && \XF::$time - $lastPostDate <= $threshold) {
                 return;
             }
 
