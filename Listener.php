@@ -28,20 +28,6 @@ class Listener
      * Must run at app_pub_complete (not app_setup) because the visitor/session
      * isn't authenticated until after XF\App::start() completes.
      */
-    public static function entityPostSave(\XF\Mvc\Entity\Entity $entity): void
-    {
-        if (!($entity instanceof \XF\Entity\User) || !$entity->isInsert()) {
-            return;
-        }
-        if ($entity->user_state !== 'valid') {
-            return;
-        }
-
-        $request = \XF::app()->request();
-        $url     = 'https://' . $request->getServer('HTTP_HOST', 'windowsforum.com') . '/register';
-        Service\MetaCapi::queueCompleteRegistration($request, $entity, $url);
-    }
-
     public static function appPubCompleteValidator(\XF\App $app, \XF\Http\Response $response)
     {
         if (!self::isValidatorEnabled())
@@ -176,16 +162,6 @@ class Listener
         // GenericShellFragment (wf_gs) retired — guests and capsule members are
         // both served from the unified xf:page entry. CapsuleSnapshot (above)
         // still supplies the member nav hydration data.
-
-        // Meta Conversions API — server-side PageView supplement (fires after response flush)
-        if ($httpCode === 200)
-        {
-            $request = $app->request();
-            $visitor = \XF::visitor();
-            $url     = 'https://' . $request->getServer('HTTP_HOST', 'windowsforum.com')
-                     . $request->getRequestUri();
-            Service\MetaCapi::queuePageView($request, $visitor, $url);
-        }
     }
     
     
