@@ -30,11 +30,17 @@ class ZstdMarshaller implements MarshallerInterface
 
     protected MarshallerInterface $inner;
 
-    public function __construct(?MarshallerInterface $inner = null)
+    protected int $level;
+
+    public function __construct(?MarshallerInterface $inner = null, ?int $level = null)
     {
         // Force serialize() (not igbinary) so the raw value stays unserialize()-able
         // by pagecache.php's pre-bootstrap reader.
         $this->inner = $inner ?? new DefaultMarshaller(false);
+        // zstd frames self-describe: readers (unmarshall + pagecache.php PREBHIT)
+        // are level-agnostic, so mixed-level entries coexist and the level can be
+        // changed at any time via $config['wfPageCacheZstdLevel'].
+        $this->level = $level ?? static::LEVEL;
     }
 
     /**
@@ -78,7 +84,7 @@ class ZstdMarshaller implements MarshallerInterface
             {
                 continue;
             }
-            $compressed = @zstd_compress($value, static::LEVEL);
+            $compressed = @zstd_compress($value, $this->level);
             if (is_string($compressed) && strlen($compressed) + 2 < strlen($value))
             {
                 $marshalled[$id] = static::MAGIC . $compressed;

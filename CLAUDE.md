@@ -24,13 +24,13 @@ php /web/regen_addon_hashes.php WindowsForum/SessionValidator
 # Full deploy cycle after PHP changes
 php cmd.php xf:addon-rebuild WindowsForum/SessionValidator && \
 php /web/regen_addon_hashes.php WindowsForum/SessionValidator && \
-rm -rf /dev/shm/lscache/* && redis-cli -n 1 FLUSHDB && service lsws restart
+rm -rf /dev/shm/lscache/* && redis-cli -n 1 FLUSHDB && systemctl restart httpjet-lsphp
 
 # Verify headers on live site (bypass CDN cache with _nc param)
 curl -sI "https://windowsforum.com/threads/some-thread.123/?_nc=$(date +%s)" | grep -iE 'last-modified|x-cache-optimizer|x-litespeed-tag'
 ```
 
-**Important**: After editing PHP files, LiteSpeed must be restarted (`service lsws restart`) to flush opcache. The CLI `opcache_reset()` does NOT affect the web server's opcache. `opcache.revalidate_freq = 60` means changes take up to 60s without a restart.
+**Important**: After editing PHP files, the PHP pool must be restarted (`systemctl restart httpjet-lsphp`) to flush opcache — production serves via httpjet, and `service lsws restart` is a NO-OP for the live pool. The CLI `opcache_reset()` does NOT affect the web pool's opcache. `opcache.revalidate_freq = 60` means changes take up to 60s without a restart.
 
 ## Architecture
 
